@@ -1,0 +1,33 @@
+registry_entry_id: "SER-NET-NAT-001"
+aws_service: "nat_gateway"
+aws_family: "networking"
+azure_targets: ["azurerm_nat_gateway", "azurerm_nat_gateway_public_ip_association"]
+gcp_targets: ["google_compute_router_nat", "google_compute_router"]
+mapping_type: "parametric"
+output_mode: "native_emit_only"
+band: "N1"
+confidence: 0.68
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-NET-NAT-001"
+    gap_type: "topology"
+    description: "AWS NAT Gateway is AZ-scoped requiring multi-AZ deployment; Azure and GCP NAT are regional"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Map multiple AWS NAT Gateways to a single Azure NAT Gateway or GCP Cloud NAT per region"
+    requires_manual_review: false
+  - gap_id: "BGR-NET-NAT-002"
+    gap_type: "feature"
+    description: "AWS EIP association with NAT Gateway differs from Azure and GCP public IP handling"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Use Azure NAT Gateway public IP association or GCP Cloud NAT auto-allocated IPs"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001", "REQ-NET-001"]
+related_edge_cases: ["EC-010"]

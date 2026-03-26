@@ -1,0 +1,40 @@
+registry_entry_id: "SER-CON-EKS-001"
+aws_service: "eks"
+aws_family: "containers"
+azure_targets: ["azurerm_kubernetes_cluster"]
+gcp_targets: ["google_container_cluster"]
+mapping_type: "direct"
+output_mode: "portable"
+band: "P2"
+confidence: 0.65
+portable_provider_candidate: true
+behavioral_gaps:
+  - gap_id: "BGR-CON-EKS-001"
+    gap_type: "feature"
+    description: "EKS managed node groups use AWS-specific AMI configuration not present in AKS or GKE"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Map to AKS default node pool or GKE node pool with equivalent machine type"
+    requires_manual_review: false
+  - gap_id: "BGR-CON-EKS-002"
+    gap_type: "policy"
+    description: "EKS IRSA (IAM Roles for Service Accounts) differs from AKS workload identity and GKE workload identity federation"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Map IRSA to AKS workload identity or GKE workload identity federation"
+    requires_manual_review: false
+  - gap_id: "BGR-CON-EKS-003"
+    gap_type: "feature"
+    description: "EKS add-ons marketplace differs from AKS extensions and GKE add-ons"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Install equivalent Helm charts or operator-based add-ons on target platform"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001"]
+related_edge_cases: ["EC-023"]

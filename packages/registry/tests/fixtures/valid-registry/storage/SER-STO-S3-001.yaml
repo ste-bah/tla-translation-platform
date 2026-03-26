@@ -1,0 +1,26 @@
+registry_entry_id: "SER-STO-S3-001"
+aws_service: "s3"
+aws_family: "storage"
+azure_targets: ["azurerm_storage_account", "azurerm_storage_container"]
+gcp_targets: ["google_storage_bucket"]
+mapping_type: "parametric"
+output_mode: "portable"
+band: "P1"
+confidence: 0.88
+portable_provider_candidate: true
+behavioral_gaps:
+  - gap_id: "BGR-STO-S3-001"
+    gap_type: "policy"
+    description: "S3 bucket policies use IAM JSON; Azure uses RBAC + firewall rules"
+    severity: "minor"
+    affected_targets: ["azure"]
+    workaround: "Translate S3 principals to Azure RBAC role assignments"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "unit_tested"
+owner: "platform-team"
+registry_version: "2026.03.13"
+last_updated: "2026-03-13T10:00:00Z"
+related_requirements: ["REQ-REG-001", "REQ-REG-003"]
+related_edge_cases: ["EC-005"]

@@ -1,0 +1,40 @@
+registry_entry_id: "SER-NET-R53-001"
+aws_service: "route53"
+aws_family: "networking"
+azure_targets: ["azurerm_dns_zone", "azurerm_dns_a_record", "azurerm_dns_cname_record"]
+gcp_targets: ["google_dns_managed_zone", "google_dns_record_set"]
+mapping_type: "direct"
+output_mode: "native_emit_only"
+band: "P2"
+confidence: 0.78
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-NET-R53-001"
+    gap_type: "feature"
+    description: "AWS Route53 alias records have no direct equivalent in Azure DNS or GCP Cloud DNS"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Use Azure DNS CNAME records or GCP DNS record sets to approximate alias behavior"
+    requires_manual_review: true
+  - gap_id: "BGR-NET-R53-002"
+    gap_type: "feature"
+    description: "Route53 health checks with DNS failover differ from Azure Traffic Manager and GCP DNS"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Use Azure Traffic Manager or GCP Cloud DNS routing policies for health-based routing"
+    requires_manual_review: false
+  - gap_id: "BGR-NET-R53-003"
+    gap_type: "feature"
+    description: "Route53 geolocation routing policy differs across providers"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Use Azure Traffic Manager geographic routing or GCP DNS geo-based routing policies"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001", "REQ-NET-001"]
+related_edge_cases: ["EC-010"]

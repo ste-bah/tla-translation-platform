@@ -1,0 +1,40 @@
+registry_entry_id: "SER-NET-ALB-001"
+aws_service: "alb"
+aws_family: "networking"
+azure_targets: ["azurerm_application_gateway"]
+gcp_targets: ["google_compute_url_map", "google_compute_backend_service"]
+mapping_type: "compound"
+output_mode: "native_emit_only"
+band: "N1"
+confidence: 0.48
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-NET-ALB-001"
+    gap_type: "topology"
+    description: "AWS ALB listener rules map differently to Azure Application Gateway and GCP URL Map"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Decompose ALB listener rules into Azure request routing rules and GCP path matchers"
+    requires_manual_review: true
+  - gap_id: "BGR-NET-ALB-002"
+    gap_type: "feature"
+    description: "AWS WAF integration with ALB has no direct equivalent in Azure App Gateway or GCP"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Use Azure Front Door WAF policy or Google Cloud Armor for WAF capabilities"
+    requires_manual_review: true
+  - gap_id: "BGR-NET-ALB-003"
+    gap_type: "feature"
+    description: "Path-based routing configuration differs significantly across providers"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Map ALB path patterns to Azure URL path map and GCP URL map path rules"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001", "REQ-NET-001"]
+related_edge_cases: ["EC-010"]

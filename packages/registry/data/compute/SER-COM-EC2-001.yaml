@@ -1,0 +1,26 @@
+registry_entry_id: "SER-COM-EC2-001"
+aws_service: "ec2"
+aws_family: "compute"
+azure_targets: ["azurerm_linux_virtual_machine", "azurerm_windows_virtual_machine"]
+gcp_targets: ["google_compute_instance"]
+mapping_type: "direct"
+output_mode: "portable"
+band: "P1"
+confidence: 0.92
+portable_provider_candidate: true
+behavioral_gaps:
+  - gap_id: "BGR-COM-EC2-001"
+    gap_type: "feature"
+    description: "EC2 placement groups have no direct Azure equivalent"
+    severity: "minor"
+    affected_targets: ["azure"]
+    workaround: "Use Azure proximity placement groups"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "unit_tested"
+owner: "platform-team"
+registry_version: "2026.03.13"
+last_updated: "2026-03-13T10:00:00Z"
+related_requirements: ["REQ-REG-001"]
+related_edge_cases: ["EC-001"]

@@ -1,0 +1,36 @@
+{
+  "name": "@tla/ingestion",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@cdktf/hcl2json": "^0.21.0",
+    "@tla/registry": "workspace:*",
+    "@tla/shared": "workspace:*",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3",
+    "vitest": "^3.1.1"
+  }
+}

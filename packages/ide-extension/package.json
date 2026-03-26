@@ -1,0 +1,18 @@
+{
+  "name": "tla-terraform-extension",
+  "displayName": "TLA Terraform Translation",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "activationEvents": ["onLanguage:terraform"],
+  "main": "./src/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "TLA Translation",
+      "properties": {
+        "tla.targetProvider": { "type": "string", "default": "both", "enum": ["azure", "gcp", "both"] },
+        "tla.enableDiagnostics": { "type": "boolean", "default": true }
+      }
+    }
+  },
+  "devDependencies": { "@types/vscode": "^1.85.0", "vitest": "^3.1.1", "typescript": "~5.8.3" }
+}

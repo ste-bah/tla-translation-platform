@@ -1,0 +1,105 @@
+{
+  "version": "phase-0",
+  "createdAt": "2026-03-14T09:38:00Z",
+  "vitest": "3.2.4",
+  "node": "22",
+  "runtime": {
+    "totalDuration_ms": 857,
+    "transformTime_ms": 420,
+    "collectTime_ms": 2170,
+    "testExecutionTime_ms": 333,
+    "prepareTime_ms": 1030
+  },
+  "summary": {
+    "testFiles": 9,
+    "testFilesPassed": 9,
+    "testFilesFailed": 0,
+    "totalTests": 191,
+    "passed": 191,
+    "failed": 0,
+    "skipped": 0
+  },
+  "coverage": {
+    "overall": {
+      "statements": 99.27,
+      "branches": 97.10,
+      "functions": 100,
+      "lines": 99.27
+    },
+    "byPackage": {
+      "@tla/shared": {
+        "constants.ts": { "stmts": 100, "branch": 100, "funcs": 100, "lines": 100 },
+        "errors.ts": { "stmts": 100, "branch": 100, "funcs": 100, "lines": 100 },
+        "index.ts": { "stmts": 100, "branch": 100, "funcs": 100, "lines": 100 },
+        "types/registry.ts": { "stmts": 100, "branch": 100, "funcs": 100, "lines": 100 },
+        "utils/logger.ts": { "stmts": 100, "branch": 100, "funcs": 100, "lines": 100 }
+      },
+      "@tla/registry": {
+        "api.ts": { "stmts": 100, "branch": 100, "funcs": 100, "lines": 100 },
+        "index.ts": { "stmts": 100, "branch": 100, "funcs": 100, "lines": 100 },
+        "loader.ts": { "stmts": 94.66, "branch": 84.61, "funcs": 100, "lines": 94.66, "uncovered": "60-63" },
+        "types.ts": { "stmts": 0, "branch": 0, "funcs": 0, "lines": 0, "note": "type-only file, no runtime code" },
+        "validator.ts": { "stmts": 100, "branch": 100, "funcs": 100, "lines": 100 }
+      }
+    }
+  },
+  "testFiles": {
+    "@tla/shared": {
+      "tests/constants.test.ts": { "tests": 53 },
+      "tests/errors.test.ts": { "tests": 25 },
+      "tests/logger.test.ts": { "tests": 3 },
+      "tests/registry-schema.test.ts": { "tests": 24 }
+    },
+    "@tla/registry": {
+      "tests/loader.test.ts": { "tests": 5 },
+      "tests/validator.test.ts": { "tests": 17 },
+      "tests/api.test.ts": { "tests": 31 },
+      "tests/integration/registry-e2e.test.ts": { "tests": 10 },
+      "tests/integration/cross-package-integration.test.ts": { "tests": 23 }
+    }
+  },
+  "publicApi": {
+    "@tla/shared": {
+      "exports": [
+        "MappingType",
+        "TranslationBand",
+        "OutputMode",
+        "AwsServiceFamily",
+        "GapType",
+        "GapSeverity",
+        "ReviewDomain",
+        "TestStatus",
+        "CloudProvider",
+        "BehavioralGapSchema",
+        "RegistryEntrySchema",
+        "TlaError",
+        "RegistryError",
+        "IngestionError",
+        "TranslationError",
+        "ValidationError",
+        "isTlaError",
+        "createComponentLogger"
+      ],
+      "typeExports": [
+        "BehavioralGap",
+        "RegistryEntry"
+      ]
+    },
+    "@tla/registry": {
+      "exports": [
+        "loadRegistryFromDirectory",
+        "validateRegistryEntries",
+        "RegistryApi"
+      ],
+      "typeExports": [
+        "LoadError",
+        "LoadResult",
+        "ValidationResult",
+        "RegistrySearchQuery",
+        "RegistryCompleteness",
+        "RegistryLoader",
+        "RegistryValidator"
+      ]
+    }
+  }
+}

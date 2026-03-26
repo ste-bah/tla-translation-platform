@@ -1,0 +1,156 @@
+{
+  "aws_autoscaling_group": {
+    "band": "N1",
+    "confidence": 0.60,
+    "azure_targets": ["azurerm_linux_virtual_machine_scale_set", "azurerm_orchestrated_virtual_machine_scale_set"],
+    "gcp_targets": ["google_compute_instance_group_manager", "google_compute_autoscaler"],
+    "mapping_type": "parametric"
+  },
+  "aws_instance": {
+    "band": "P1",
+    "confidence": 0.92,
+    "azure_targets": ["azurerm_linux_virtual_machine", "azurerm_windows_virtual_machine"],
+    "gcp_targets": ["google_compute_instance"],
+    "mapping_type": "direct"
+  },
+  "aws_lambda_function": {
+    "band": "N1",
+    "confidence": 0.70,
+    "azure_targets": ["azurerm_function_app", "azurerm_linux_function_app"],
+    "gcp_targets": ["google_cloudfunctions2_function"],
+    "mapping_type": "parametric"
+  },
+  "aws_ecs_service": {
+    "band": "N1",
+    "confidence": 0.55,
+    "azure_targets": ["azurerm_container_app", "azurerm_container_app_environment"],
+    "gcp_targets": ["google_cloud_run_v2_service"],
+    "mapping_type": "structural"
+  },
+  "aws_eks_cluster": {
+    "band": "P2",
+    "confidence": 0.65,
+    "azure_targets": ["azurerm_kubernetes_cluster"],
+    "gcp_targets": ["google_container_cluster"],
+    "mapping_type": "direct"
+  },
+  "aws_ecs_task_definition": {
+    "band": "N1",
+    "confidence": 0.50,
+    "azure_targets": ["azurerm_container_group"],
+    "gcp_targets": ["google_cloud_run_v2_service"],
+    "mapping_type": "parametric"
+  },
+  "aws_dynamodb_table": {
+    "band": "M1",
+    "confidence": 0.25,
+    "azure_targets": [],
+    "gcp_targets": [],
+    "mapping_type": "none"
+  },
+  "aws_elasticache_replication_group": {
+    "band": "P1",
+    "confidence": 0.82,
+    "azure_targets": ["azurerm_redis_cache"],
+    "gcp_targets": ["google_redis_instance"],
+    "mapping_type": "direct"
+  },
+  "aws_db_instance": {
+    "band": "P2",
+    "confidence": 0.70,
+    "azure_targets": ["azurerm_mysql_flexible_server", "azurerm_postgresql_flexible_server", "azurerm_mssql_server"],
+    "gcp_targets": ["google_sql_database_instance"],
+    "mapping_type": "compound"
+  },
+  "aws_lb": {
+    "band": "N1",
+    "confidence": 0.48,
+    "azure_targets": ["azurerm_application_gateway"],
+    "gcp_targets": ["google_compute_url_map", "google_compute_backend_service"],
+    "mapping_type": "compound"
+  },
+  "aws_cloudfront_distribution": {
+    "band": "N1",
+    "confidence": 0.42,
+    "azure_targets": ["azurerm_cdn_frontdoor_profile", "azurerm_cdn_frontdoor_endpoint", "azurerm_cdn_frontdoor_route"],
+    "gcp_targets": ["google_compute_url_map", "google_compute_backend_bucket"],
+    "mapping_type": "compound"
+  },
+  "aws_nat_gateway": {
+    "band": "N1",
+    "confidence": 0.68,
+    "azure_targets": ["azurerm_nat_gateway", "azurerm_nat_gateway_public_ip_association"],
+    "gcp_targets": ["google_compute_router_nat", "google_compute_router"],
+    "mapping_type": "parametric"
+  },
+  "aws_lb_target_group": {
+    "band": "N1",
+    "confidence": 0.52,
+    "azure_targets": ["azurerm_lb"],
+    "gcp_targets": ["google_compute_forwarding_rule"],
+    "mapping_type": "compound"
+  },
+  "aws_vpc_peering_connection": {
+    "band": "P2",
+    "confidence": 0.72,
+    "azure_targets": ["azurerm_virtual_network_peering"],
+    "gcp_targets": ["google_compute_network_peering"],
+    "mapping_type": "direct"
+  },
+  "aws_route53_zone": {
+    "band": "P2",
+    "confidence": 0.78,
+    "azure_targets": ["azurerm_dns_zone", "azurerm_dns_a_record", "azurerm_dns_cname_record"],
+    "gcp_targets": ["google_dns_managed_zone", "google_dns_record_set"],
+    "mapping_type": "direct"
+  },
+  "aws_security_group": {
+    "band": "N1",
+    "confidence": 0.55,
+    "azure_targets": ["azurerm_network_security_group", "azurerm_network_security_rule"],
+    "gcp_targets": ["google_compute_firewall"],
+    "mapping_type": "structural"
+  },
+  "aws_subnet": {
+    "band": "P2",
+    "confidence": 0.72,
+    "azure_targets": ["azurerm_subnet"],
+    "gcp_targets": ["google_compute_subnetwork"],
+    "mapping_type": "parametric"
+  },
+  "aws_vpc": {
+    "band": "P2",
+    "confidence": 0.75,
+    "azure_targets": ["azurerm_virtual_network", "azurerm_subnet", "azurerm_network_security_group"],
+    "gcp_targets": ["google_compute_network", "google_compute_subnetwork"],
+    "mapping_type": "parametric"
+  },
+  "aws_ebs_volume": {
+    "band": "N1",
+    "confidence": 0.65,
+    "azure_targets": ["azurerm_managed_disk", "azurerm_virtual_machine_data_disk_attachment"],
+    "gcp_targets": ["google_compute_disk", "google_compute_attached_disk"],
+    "mapping_type": "compound"
+  },
+  "aws_ecr_repository": {
+    "band": "P1",
+    "confidence": 0.85,
+    "azure_targets": ["azurerm_container_registry"],
+    "gcp_targets": ["google_artifact_registry_repository"],
+    "mapping_type": "direct"
+  },
+  "aws_efs_file_system": {
+    "band": "N1",
+    "confidence": 0.55,
+    "azure_targets": ["azurerm_storage_account", "azurerm_storage_share"],
+    "gcp_targets": ["google_filestore_instance"],
+    "mapping_type": "structural"
+  },
+  "aws_s3_bucket": {
+    "band": "P1",
+    "confidence": 0.88,
+    "azure_targets": ["azurerm_storage_account", "azurerm_storage_container"],
+    "gcp_targets": ["google_storage_bucket"],
+    "mapping_type": "parametric"
+  }
+}

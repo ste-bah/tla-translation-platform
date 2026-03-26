@@ -1,0 +1,40 @@
+registry_entry_id: "SER-CON-ECS-001"
+aws_service: "ecs"
+aws_family: "containers"
+azure_targets: ["azurerm_container_app", "azurerm_container_app_environment"]
+gcp_targets: ["google_cloud_run_v2_service"]
+mapping_type: "structural"
+output_mode: "native_emit_only"
+band: "N1"
+confidence: 0.55
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-CON-ECS-001"
+    gap_type: "topology"
+    description: "ECS task definitions with sidecar containers map differently to Azure Container Apps revision model"
+    severity: "major"
+    affected_targets: ["azure"]
+    workaround: "Flatten sidecar containers into Azure Container App multi-container revision"
+    requires_manual_review: false
+  - gap_id: "BGR-CON-ECS-002"
+    gap_type: "feature"
+    description: "ECS service connect for service mesh has no direct equivalent in GCP Cloud Run"
+    severity: "major"
+    affected_targets: ["gcp"]
+    workaround: "Use GCP Traffic Director or Istio on GKE for service mesh capabilities"
+    requires_manual_review: false
+  - gap_id: "BGR-CON-ECS-003"
+    gap_type: "runtime"
+    description: "ECS task placement strategies and constraints have no Azure Container Apps equivalent"
+    severity: "minor"
+    affected_targets: ["azure"]
+    workaround: "Use Azure Container Apps scaling rules for approximate placement control"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001"]
+related_edge_cases: ["EC-022"]

@@ -1,0 +1,40 @@
+registry_entry_id: "SER-NET-PEER-001"
+aws_service: "vpc_peering"
+aws_family: "networking"
+azure_targets: ["azurerm_virtual_network_peering"]
+gcp_targets: ["google_compute_network_peering"]
+mapping_type: "direct"
+output_mode: "native_emit_only"
+band: "P2"
+confidence: 0.72
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-NET-PEER-001"
+    gap_type: "feature"
+    description: "VPC peering is non-transitive; route propagation behavior differs across providers"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Explicitly configure route tables in each provider to handle non-transitive peering"
+    requires_manual_review: false
+  - gap_id: "BGR-NET-PEER-002"
+    gap_type: "policy"
+    description: "Cross-account VPC peering requires different IAM and acceptance workflows per provider"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Configure provider-specific cross-tenant authorization and peering acceptance"
+    requires_manual_review: true
+  - gap_id: "BGR-NET-PEER-003"
+    gap_type: "topology"
+    description: "Azure requires bidirectional peering resources; AWS and GCP use single acceptance model"
+    severity: "minor"
+    affected_targets: ["azure"]
+    workaround: "Create two Azure peering resources, one in each direction, to match AWS single peering"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001", "REQ-NET-001"]
+related_edge_cases: ["EC-010"]

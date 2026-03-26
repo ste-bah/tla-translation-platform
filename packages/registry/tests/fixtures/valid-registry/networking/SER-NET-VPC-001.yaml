@@ -1,0 +1,33 @@
+registry_entry_id: "SER-NET-VPC-001"
+aws_service: "vpc"
+aws_family: "networking"
+azure_targets: ["azurerm_virtual_network", "azurerm_subnet", "azurerm_network_security_group"]
+gcp_targets: ["google_compute_network", "google_compute_subnetwork"]
+mapping_type: "structural"
+output_mode: "native_emit_only"
+band: "P2"
+confidence: 0.72
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-NET-VPC-001"
+    gap_type: "topology"
+    description: "AWS VPC is single construct; Azure splits into VNet + NSG + Route Table"
+    severity: "major"
+    affected_targets: ["azure"]
+    workaround: "Expand VPC into VNet + subnet + NSG + route table composition"
+    requires_manual_review: true
+  - gap_id: "BGR-NET-VPC-002"
+    gap_type: "topology"
+    description: "GCP VPC is global by default; AWS VPC is regional"
+    severity: "minor"
+    affected_targets: ["gcp"]
+    workaround: "Map to GCP custom-mode VPC with region-specific subnets"
+    requires_manual_review: false
+manual_review_required: true
+review_domains: ["networking", "security"]
+test_status: "unit_tested"
+owner: "networking-team"
+registry_version: "2026.03.13"
+last_updated: "2026-03-13T10:00:00Z"
+related_requirements: ["REQ-REG-001", "REQ-NET-001"]
+related_edge_cases: ["EC-010", "EC-011"]

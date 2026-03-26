@@ -1,0 +1,40 @@
+registry_entry_id: "SER-CON-FAR-001"
+aws_service: "fargate"
+aws_family: "containers"
+azure_targets: ["azurerm_container_group"]
+gcp_targets: ["google_cloud_run_v2_service"]
+mapping_type: "parametric"
+output_mode: "native_emit_only"
+band: "N1"
+confidence: 0.50
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-CON-FAR-001"
+    gap_type: "runtime"
+    description: "Fargate task CPU and memory configurations use AWS-specific size classes not available in Azure Container Instances"
+    severity: "major"
+    affected_targets: ["azure"]
+    workaround: "Map Fargate vCPU/memory combos to nearest Azure Container Instances resource limits"
+    requires_manual_review: false
+  - gap_id: "BGR-CON-FAR-002"
+    gap_type: "topology"
+    description: "Fargate platform version and runtime differ from Azure Container Instances and GCP Cloud Run execution environments"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Pin to latest stable runtime on target platform and validate container compatibility"
+    requires_manual_review: false
+  - gap_id: "BGR-CON-FAR-003"
+    gap_type: "feature"
+    description: "Fargate ephemeral storage configuration has no direct equivalent in GCP Cloud Run"
+    severity: "minor"
+    affected_targets: ["gcp"]
+    workaround: "Use GCP Cloud Run volume mounts or in-memory tmpfs for ephemeral storage needs"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001"]
+related_edge_cases: ["EC-024"]

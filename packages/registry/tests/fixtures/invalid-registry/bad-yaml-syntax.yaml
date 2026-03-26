@@ -1,0 +1,4 @@
+registry_entry_id: "SER-BAD-YAML-001"
+aws_service: "broken"
+aws_family: [this is not closed
+mapping_type: "direct"

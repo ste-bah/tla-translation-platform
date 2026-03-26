@@ -1,0 +1,40 @@
+registry_entry_id: "SER-STO-EFS-001"
+aws_service: "efs"
+aws_family: "storage"
+azure_targets: ["azurerm_storage_account", "azurerm_storage_share"]
+gcp_targets: ["google_filestore_instance"]
+mapping_type: "structural"
+output_mode: "native_emit_only"
+band: "N1"
+confidence: 0.55
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-STO-EFS-001"
+    gap_type: "topology"
+    description: "EFS mount targets per AZ have no equivalent in Azure Files or GCP Filestore networking model"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Map mount targets to Azure private endpoints or GCP VPC network configuration"
+    requires_manual_review: false
+  - gap_id: "BGR-STO-EFS-002"
+    gap_type: "feature"
+    description: "EFS lifecycle policies and Infrequent Access storage class differ from Azure Files tiers and GCP Filestore"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Map to Azure cool/hot tiers or manage lifecycle externally"
+    requires_manual_review: false
+  - gap_id: "BGR-STO-EFS-003"
+    gap_type: "topology"
+    description: "EFS throughput modes (bursting, provisioned, elastic) have no direct mapping in target clouds"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Select appropriate Azure Files premium tier or GCP Filestore performance tier"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001"]
+related_edge_cases: ["EC-031"]

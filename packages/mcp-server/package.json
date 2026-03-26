@@ -1,0 +1,43 @@
+{
+  "name": "@tla/mcp-server",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "tla-mcp": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@tla/ingestion": "workspace:*",
+    "@tla/registry": "workspace:*",
+    "@tla/shared": "workspace:*",
+    "@tla/translator": "workspace:*",
+    "@tla/validator": "workspace:*",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "~5.8.3",
+    "vitest": "^3.1.1"
+  }
+}

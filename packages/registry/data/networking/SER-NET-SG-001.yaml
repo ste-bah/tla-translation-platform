@@ -1,0 +1,40 @@
+registry_entry_id: "SER-NET-SG-001"
+aws_service: "security_group"
+aws_family: "networking"
+azure_targets: ["azurerm_network_security_group", "azurerm_network_security_rule"]
+gcp_targets: ["google_compute_firewall"]
+mapping_type: "structural"
+output_mode: "native_emit_only"
+band: "N1"
+confidence: 0.55
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-NET-SG-001"
+    gap_type: "feature"
+    description: "AWS security groups are stateful; GCP firewall rules are stateless"
+    severity: "major"
+    affected_targets: ["gcp"]
+    workaround: "Create explicit ingress and egress GCP firewall rules to emulate stateful behavior"
+    requires_manual_review: true
+  - gap_id: "BGR-NET-SG-002"
+    gap_type: "feature"
+    description: "AWS security groups support self-referencing rules; Azure NSG and GCP firewall do not"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Use application security groups in Azure or network tags in GCP for self-referencing"
+    requires_manual_review: true
+  - gap_id: "BGR-NET-SG-003"
+    gap_type: "policy"
+    description: "Default deny behavior differs across providers"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Add explicit deny-all rules at lowest priority in target cloud"
+    requires_manual_review: false
+manual_review_required: true
+review_domains: ["networking", "security"]
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001", "REQ-NET-001"]
+related_edge_cases: ["EC-010"]

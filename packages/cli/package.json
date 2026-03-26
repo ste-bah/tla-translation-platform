@@ -1,0 +1,33 @@
+{
+  "name": "@tla/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "bin": {
+    "tla": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@tla/shared": "workspace:*",
+    "@tla/registry": "workspace:*",
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3"
+  }
+}

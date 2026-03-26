@@ -1,0 +1,40 @@
+registry_entry_id: "SER-DAT-RDS-001"
+aws_service: "rds"
+aws_family: "database"
+azure_targets: ["azurerm_mysql_flexible_server", "azurerm_postgresql_flexible_server", "azurerm_mssql_server"]
+gcp_targets: ["google_sql_database_instance"]
+mapping_type: "compound"
+output_mode: "native_emit_only"
+band: "P2"
+confidence: 0.70
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-DAT-RDS-001"
+    gap_type: "feature"
+    description: "RDS Multi-AZ deployment models differ significantly from Azure zone-redundant HA and GCP regional instances"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Map RDS Multi-AZ to Azure zone-redundant HA or GCP regional instance configuration"
+    requires_manual_review: false
+  - gap_id: "BGR-DAT-RDS-002"
+    gap_type: "policy"
+    description: "RDS IAM authentication and parameter groups have no direct equivalent in Azure or GCP managed databases"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Use Azure AD authentication or GCP IAM database authentication with equivalent parameter configuration"
+    requires_manual_review: false
+  - gap_id: "BGR-DAT-RDS-003"
+    gap_type: "feature"
+    description: "RDS read replicas cross-region promotion differs from Azure and GCP replication models"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Configure target-native read replica and failover mechanisms"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001"]
+related_edge_cases: ["EC-040"]

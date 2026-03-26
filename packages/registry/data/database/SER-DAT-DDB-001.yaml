@@ -1,0 +1,33 @@
+registry_entry_id: "SER-DAT-DDB-001"
+aws_service: "dynamodb"
+aws_family: "database"
+azure_targets: []
+gcp_targets: []
+mapping_type: "none"
+output_mode: "advisory_manual"
+band: "M1"
+confidence: 0.25
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-DAT-DDB-001"
+    gap_type: "data_model"
+    description: "DynamoDB single-table design with partition/sort keys has no equivalent in Azure Cosmos DB or GCP Bigtable"
+    severity: "blocker"
+    affected_targets: ["azure", "gcp"]
+    workaround: null
+    requires_manual_review: true
+  - gap_id: "BGR-DAT-DDB-002"
+    gap_type: "feature"
+    description: "DynamoDB Streams, DAX caching, and global tables have no portable equivalents"
+    severity: "blocker"
+    affected_targets: ["azure", "gcp"]
+    workaround: null
+    requires_manual_review: true
+manual_review_required: true
+review_domains: ["data"]
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001"]
+related_edge_cases: ["EC-041"]

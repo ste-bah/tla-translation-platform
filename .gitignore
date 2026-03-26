@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Go binary
+packages/terraform-provider/terraform-provider-tla
+packages/terraform-provider/terraform-provider-tla.exe
+
+# Coverage
+coverage/
+*.lcov
+
+# Turbo cache
+.turbo/
+
+# God Agent / Pipeline (development orchestration artifacts)
+.god-agent/
+.pipeline-state/
+.pipeline-state.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+crash.log
+
+# Test temp files
+tmp/
+.tmp/
+
+# VS Code extension build
+packages/ide-extension/*.vsix

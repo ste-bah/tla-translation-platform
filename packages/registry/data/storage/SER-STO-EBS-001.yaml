@@ -1,0 +1,40 @@
+registry_entry_id: "SER-STO-EBS-001"
+aws_service: "ebs"
+aws_family: "storage"
+azure_targets: ["azurerm_managed_disk", "azurerm_virtual_machine_data_disk_attachment"]
+gcp_targets: ["google_compute_disk", "google_compute_attached_disk"]
+mapping_type: "compound"
+output_mode: "native_emit_only"
+band: "N1"
+confidence: 0.65
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-STO-EBS-001"
+    gap_type: "feature"
+    description: "EBS volume types (io2, gp3) have no direct equivalents in Azure Managed Disks or GCP Persistent Disks"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Map EBS volume types to closest Azure Premium/Standard SSD or GCP pd-ssd/pd-balanced"
+    requires_manual_review: false
+  - gap_id: "BGR-STO-EBS-002"
+    gap_type: "topology"
+    description: "EBS multi-attach for io1/io2 volumes has limited support in Azure and GCP shared disks"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Use Azure shared disks or GCP multi-writer mode where available"
+    requires_manual_review: false
+  - gap_id: "BGR-STO-EBS-003"
+    gap_type: "feature"
+    description: "EBS fast snapshot restore has no direct equivalent in Azure or GCP"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Pre-warm disks from snapshots or use incremental snapshot restore"
+    requires_manual_review: false
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001"]
+related_edge_cases: ["EC-030"]

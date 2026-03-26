@@ -1,0 +1,40 @@
+registry_entry_id: "SER-NET-NLB-001"
+aws_service: "nlb"
+aws_family: "networking"
+azure_targets: ["azurerm_lb"]
+gcp_targets: ["google_compute_forwarding_rule"]
+mapping_type: "compound"
+output_mode: "native_emit_only"
+band: "N1"
+confidence: 0.52
+portable_provider_candidate: false
+behavioral_gaps:
+  - gap_id: "BGR-NET-NLB-001"
+    gap_type: "feature"
+    description: "AWS NLB cross-zone load balancing has no direct equivalent configuration in Azure or GCP"
+    severity: "minor"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Azure LB distributes across zones by default; GCP uses regional backend services"
+    requires_manual_review: false
+  - gap_id: "BGR-NET-NLB-002"
+    gap_type: "feature"
+    description: "AWS NLB static IP allocation differs from Azure and GCP approaches"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Use Azure public IP with static allocation or GCP reserved external IP address"
+    requires_manual_review: false
+  - gap_id: "BGR-NET-NLB-003"
+    gap_type: "feature"
+    description: "TLS termination at NLB differs in certificate management across providers"
+    severity: "major"
+    affected_targets: ["azure", "gcp"]
+    workaround: "Map ACM certificates to Azure Key Vault certs or GCP SSL certificates"
+    requires_manual_review: true
+manual_review_required: false
+review_domains: []
+test_status: "untested"
+owner: "platform-team"
+registry_version: "2026.03.14"
+last_updated: "2026-03-14T10:00:00Z"
+related_requirements: ["REQ-REG-001", "REQ-NET-001"]
+related_edge_cases: ["EC-010"]
