@@ -23,6 +23,7 @@ Beyond translation, the platform includes a full **validation suite** (semantic 
 ## Architecture
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 graph LR
     A["AWS .tf Files"] --> B["HCL Parser"]
     B --> C["Dependency Graph"]
@@ -91,6 +92,7 @@ npx tla registry-report --format table
 The compiler executes a 7-phase pipeline for each translation:
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart TD
     P1["Phase 1: Parse"]
     P2["Phase 2: Resolve"]

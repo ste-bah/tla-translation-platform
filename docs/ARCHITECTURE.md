@@ -9,6 +9,7 @@
 The TLA (Terraform Landing Zone Accelerator) platform translates AWS Terraform configurations into Azure or GCP equivalents. It is organized as a pnpm monorepo with 10 packages spanning TypeScript libraries, an MCP server, a Go-based Terraform provider, integration tests, and a VS Code extension.
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 graph TB
     subgraph "Monorepo: @tla/*"
         shared["@tla/shared<br/><i>Zod schemas, types,<br/>constants, errors,<br/>audit logger</i>"]
@@ -59,6 +60,7 @@ graph TB
 The full pipeline transforms raw `.tf` files into validated, target-provider infrastructure code through 9 discrete stages.
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart LR
     A["<b>1. HCL Parse</b><br/>@cdktf/hcl2json<br/>→ HclAst"] --> B["<b>2. Dependency<br/>Graph</b><br/>DependencyGraph<br/>+ analyzeGraph"]
     B --> C["<b>3. IR Emit</b><br/>IrEmitter<br/>detectIntents<br/>→ CanonicalIR"]
@@ -101,6 +103,7 @@ flowchart LR
 All inter-package dependencies flow in one direction -- no cycles.
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 graph BT
     shared["@tla/shared<br/>(Zod schemas, types,<br/>errors, constants)"]
 
@@ -165,6 +168,7 @@ graph BT
 The Canonical Intermediate Representation is the central data structure. All upstream parsing converges into it; all downstream translation reads from it. The IR is **immutable** once emitted -- engines never mutate it.
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 classDiagram
     class CanonicalIR {
         +string version (semver)
@@ -267,6 +271,7 @@ The translation compiler dispatches each resource to one of five mapping engines
 ### Dispatch Flow
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart TD
     Start["TranslationCompiler<br/>iterates plan items"] --> Lookup["getEngine(item.mappingType)"]
 
@@ -302,6 +307,7 @@ flowchart TD
 ### Direct Engine Dispatch
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart LR
     DE["DirectEngine.translate(ctx)"] --> DT{"ctx.resource<br/>.sourceType"}
     DT -->|"aws_s3_bucket"| S3["s3-mapping.ts"]
@@ -315,6 +321,7 @@ flowchart LR
 ### Compound Expansion Example
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart LR
     subgraph AWS
         EC2["aws_instance<br/>(single resource)"]
@@ -378,6 +385,7 @@ The registry is a set of YAML files, each containing one or more `RegistryEntry`
 ### Band Classification
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 graph LR
     subgraph "Band Hierarchy"
         P1["<b>P1</b><br/>Direct mapping<br/>Confidence >= 0.85<br/>Fully automated"]
@@ -401,6 +409,7 @@ graph LR
 The validator runs up to 7 checks in strict dependency order. Each check can be individually selected. Downstream checks are skipped if an upstream dependency is unavailable.
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart TD
     Input["Translated .tf directory<br/>+ optional CanonicalIR JSON"]
 
@@ -488,6 +497,7 @@ resource_score = registry_confidence
 ### Stack-Level Aggregation
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart TD
     R1["Resource A<br/>score=0.85<br/>review_critical=true"] --> W1["Weighted: 0.85 * 1.5 = 1.275"]
     R2["Resource B<br/>score=0.72<br/>review_critical=false"] --> W2["Weighted: 0.72 * 1.0 = 0.72"]
@@ -524,6 +534,7 @@ flowchart TD
 The MCP server exposes the full TLA pipeline over the Model Context Protocol stdio transport, making it directly usable from Claude Code, VS Code, and other MCP-compatible clients.
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart TB
     subgraph "MCP Client (Claude Code / IDE)"
         Client["MCP Client"]
@@ -606,6 +617,7 @@ The `RegistryManager` implements lazy-load with TTL-based cache invalidation:
 The state transformer converts AWS Terraform state into target-provider state commands, enabling `terraform state mv`/`import`/`rm` workflows.
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart TD
     subgraph Input
         State["AWS .tfstate<br/>(v3 or v4)"]
@@ -674,6 +686,7 @@ The portable provider introduces `cloud_*` resources -- provider-agnostic Terraf
 ### Architecture
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart TB
     subgraph "User Configuration"
         HCL["resource \"cloud_object_storage\" \"data\" {<br/>  name = \"my-bucket\"<br/>  versioning = true<br/>  encryption { algorithm = \"AES256\" }<br/>}"]
@@ -735,6 +748,7 @@ Resources are defined in `internal/resources/` with provider-specific attribute 
 The exit path (`emitNativeEquivalent()`) is the escape hatch: it takes `cloud_*` resources and produces pure native-provider HCL with zero dependency on the TLA provider binary. This allows teams to adopt the portable abstraction for migration and then "eject" to standard Terraform when ready.
 
 ```mermaid
+%%{init: {"theme": "neutral"}}%%
 flowchart LR
     Cloud["cloud_object_storage<br/>(portable)"] -->|"emitNativeEquivalent()"| Native["azurerm_storage_account<br/>+ azurerm_storage_container<br/>(native HCL)"]
     Cloud2["cloud_cache_redis<br/>(portable)"] -->|"emitNativeEquivalent()"| Native2["google_redis_instance<br/>(native HCL)"]
