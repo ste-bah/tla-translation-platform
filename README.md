@@ -160,20 +160,108 @@ The MCP server exposes 10 tools for AI agent integration:
 
 ---
 
-## Registry Coverage
+## Supported Resources
 
-### 22 AWS Services Mapped
+### Complete AWS to Azure/GCP Mapping Table
 
-| Band | Services | Count |
-|------|----------|-------|
-| **P1 -- Direct** | S3, ECR, ElastiCache Redis, Route53 Zones, VPC Peering | 5 |
-| **P2 -- Parametric** | VPC, Subnet, NAT Gateway, KMS, Secrets Manager, EKS | 6 |
-| **P2 -- Compound** | EC2, Auto Scaling Groups, ALB, NLB, RDS | 5 |
-| **P2 -- Structural** | Security Groups, Lambda, ECS, SQS, SNS, CloudWatch | 6 |
-| **N1 -- Manual** | Transit Gateway, PrivateLink, DNS (complex records) | 3 |
-| **M1 -- Advisory** | DynamoDB, IAM, CloudFront, Route53 Health, ElastiCache Cluster | 5 |
+Every AWS resource below has a dedicated translation engine. The **Band** indicates translation confidence: P1 (highest, direct mapping) through M1 (advisory only, manual migration required).
 
-> Note: Some services span multiple bands depending on the specific resource type and configuration complexity.
+#### Compute
+
+| AWS Resource | Azure Target | GCP Target | Band | Engine |
+|---|---|---|---|---|
+| `aws_instance` (EC2) | `azurerm_linux_virtual_machine` | `google_compute_instance` | P1 | Compound (VM + NIC + Disk) |
+| `aws_autoscaling_group` | `azurerm_linux_virtual_machine_scale_set` | `google_compute_instance_group_manager` + `google_compute_autoscaler` | N1 | Compound |
+| `aws_lambda_function` | `azurerm_linux_function_app` | `google_cloudfunctions2_function` | N1 | Structural (trigger detection) |
+| `aws_ecs_service` / `aws_ecs_task_definition` | `azurerm_container_app` + `azurerm_container_app_environment` | `google_cloud_run_v2_service` | N1 | Structural |
+| `aws_eks_cluster` | `azurerm_kubernetes_cluster` | `google_container_cluster` | P2 | Parametric |
+| `aws_ecs_service` (Fargate) | `azurerm_container_group` | `google_cloud_run_v2_service` | N1 | Parametric |
+| `aws_sfn_state_machine` (Step Functions) | `azurerm_logic_app_workflow` | `google_workflows_workflow` | M1 | Structural (ASL definition is advisory) |
+
+#### Storage
+
+| AWS Resource | Azure Target | GCP Target | Band | Engine |
+|---|---|---|---|---|
+| `aws_s3_bucket` | `azurerm_storage_account` + `azurerm_storage_container` | `google_storage_bucket` | P1 | Direct |
+| `aws_ecr_repository` | `azurerm_container_registry` | `google_artifact_registry_repository` | P1 | Direct |
+| `aws_ebs_volume` | `azurerm_managed_disk` | `google_compute_disk` | N1 | Compound |
+| `aws_efs_file_system` | `azurerm_storage_account` + `azurerm_storage_share` | `google_filestore_instance` | N1 | Structural |
+
+#### Database
+
+| AWS Resource | Azure Target | GCP Target | Band | Engine |
+|---|---|---|---|---|
+| `aws_db_instance` (RDS) | `azurerm_postgresql_flexible_server` / `azurerm_mysql_flexible_server` / `azurerm_mssql_server` | `google_sql_database_instance` | P2 | Compound (engine-specific routing) |
+| `aws_elasticache_replication_group` | `azurerm_redis_cache` | `google_redis_instance` | P1 | Direct |
+| `aws_dynamodb_table` | *(advisory only)* | *(advisory only)* | M1 | Advisory (data model divergence) |
+
+#### Networking
+
+| AWS Resource | Azure Target | GCP Target | Band | Engine |
+|---|---|---|---|---|
+| `aws_vpc` | `azurerm_virtual_network` | `google_compute_network` | P2 | Parametric |
+| `aws_subnet` | `azurerm_subnet` | `google_compute_subnetwork` | P2 | Parametric |
+| `aws_security_group` | `azurerm_network_security_group` + `azurerm_network_security_rule` | `google_compute_firewall` | N1 | Structural (BLOCKER gate on rule broadening) |
+| `aws_lb` (ALB) | `azurerm_application_gateway` | `google_compute_url_map` + `google_compute_backend_service` | N1 | Compound |
+| `aws_lb` (NLB) | `azurerm_lb` | `google_compute_forwarding_rule` | N1 | Compound |
+| `aws_nat_gateway` | `azurerm_nat_gateway` | `google_compute_router_nat` + `google_compute_router` | N1 | Parametric |
+| `aws_route53_zone` / `aws_route53_record` | `azurerm_dns_zone` + `azurerm_dns_a_record` | `google_dns_managed_zone` + `google_dns_record_set` | P2 | Direct |
+| `aws_vpc_peering_connection` | `azurerm_virtual_network_peering` | `google_compute_network_peering` | P2 | Direct |
+| `aws_ec2_transit_gateway` | Azure Virtual WAN / vHub | GCP Network Connectivity Center | N1 | Structural (topology pattern) |
+| `aws_vpc_endpoint` (PrivateLink) | Azure Private Endpoint / Private Link Service | GCP Private Service Connect | N1 | Structural (producer/consumer) |
+| `aws_cloudfront_distribution` | `azurerm_cdn_frontdoor_profile` + endpoint + route | `google_compute_url_map` + `google_compute_backend_bucket` | N1 | Compound |
+
+#### Hybrid Connectivity
+
+| AWS Resource | Azure Target | GCP Target | Band | Engine |
+|---|---|---|---|---|
+| `aws_dx_connection` (Direct Connect) | `azurerm_express_route_circuit` | `google_compute_interconnect_attachment` | N1 | Parametric |
+| `aws_dx_gateway` | `azurerm_express_route_gateway` | `google_compute_router` (BGP) | N1 | Parametric |
+| `aws_vpn_gateway` | `azurerm_virtual_network_gateway` (VPN) | `google_compute_vpn_gateway` | N1 | Parametric |
+| `aws_vpn_connection` | `azurerm_virtual_network_gateway_connection` | `google_compute_vpn_tunnel` | N1 | Parametric |
+| `aws_customer_gateway` | `azurerm_local_network_gateway` | `google_compute_external_vpn_gateway` | N1 | Parametric |
+
+#### Security & Identity
+
+| AWS Resource | Azure Target | GCP Target | Band | Engine |
+|---|---|---|---|---|
+| `aws_kms_key` | `azurerm_key_vault_key` | `google_kms_crypto_key` | P2 | Parametric |
+| `aws_secretsmanager_secret` | `azurerm_key_vault_secret` | `google_secret_manager_secret` | P2 | Parametric |
+| `aws_iam_role` / `aws_iam_policy` | *(advisory only)* | *(advisory only)* | M1 | Advisory (identity architecture divergent) |
+| `aws_wafv2_web_acl` | `azurerm_web_application_firewall_policy` | `google_compute_security_policy` | N1 | Structural |
+
+#### Application Integration
+
+| AWS Resource | Azure Target | GCP Target | Band | Engine |
+|---|---|---|---|---|
+| `aws_api_gateway_rest_api` | `azurerm_api_management` + `azurerm_api_management_api` | `google_api_gateway_api` + `google_api_gateway_api_config` + `google_api_gateway_gateway` | N1 | Compound |
+| `aws_sqs_queue` | Azure Service Bus Queue | GCP Pub/Sub | N1 | Structural |
+| `aws_sns_topic` | Azure Event Grid / Service Bus Topic | GCP Pub/Sub | N1 | Structural |
+| `aws_cloudwatch_metric_alarm` | Azure Monitor metric alert | GCP Cloud Monitoring alert | N1 | Structural |
+
+#### Additional Terraform Resources Handled
+
+These resource types are recognized and classified but do not require dedicated translation:
+
+| Resource Type | Classification | Handling |
+|---|---|---|
+| `null_resource` | Procedural | Advisory — flagged for review |
+| `random_*` (random_id, random_string, etc.) | Utility | Preserved as-is (cloud-neutral) |
+| `template_*` | Utility | Preserved as-is |
+| `helm_release` / `kubernetes_*` | Orchestration | Skipped (managed separately) |
+| `data "external"` | Procedural | Advisory — flagged as non-portable |
+| `provisioner "local-exec"` | Side-effect | Advisory — manual task emitted |
+
+### Translation Band Summary
+
+| Band | Meaning | Count | Confidence |
+|------|---------|-------|------------|
+| **P1** | Direct 1:1 mapping, high confidence | 4 | 0.85-0.95 |
+| **P2** | Parametric with attribute transformation | 8 | 0.70-0.85 |
+| **N1** | Requires manual attention, compound/structural | 17 | 0.50-0.70 |
+| **M1** | Advisory only, manual migration required | 3 | 0.10-0.30 |
+
+> **Total: 32+ AWS resource types** with dedicated translation logic across 5 engine types.
 
 ---
 
