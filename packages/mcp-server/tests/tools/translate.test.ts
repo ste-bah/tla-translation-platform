@@ -34,6 +34,12 @@ const {
   mockIdentifyAwsServices,
   MockTranslationCompiler,
   mockCompilerTranslate,
+  mockBuildTranslationReport,
+  mockBuildAuditEntry,
+  mockAppendAuditEntry,
+  mockBuildConfidenceReport,
+  mockGenerateRemediationPack,
+  mockBuildMigrationPack,
   mockWriteFile,
   mockMkdtemp,
   mockMkdir,
@@ -55,6 +61,12 @@ const {
     mockIdentifyAwsServices: vi.fn(),
     MockTranslationCompiler: vi.fn(() => ({ translate: mockCompilerTranslate })),
     mockCompilerTranslate,
+    mockBuildTranslationReport: vi.fn().mockReturnValue('# Report'),
+    mockBuildAuditEntry: vi.fn().mockReturnValue({ ts: '2026-01-01T00:00:00Z', action: 'translate' }),
+    mockAppendAuditEntry: vi.fn().mockResolvedValue(undefined),
+    mockBuildConfidenceReport: vi.fn().mockReturnValue({ overall: 0.88 }),
+    mockGenerateRemediationPack: vi.fn().mockReturnValue({ items: [] }),
+    mockBuildMigrationPack: vi.fn().mockReturnValue(null),
     mockWriteFile,
     mockMkdtemp,
     mockMkdir,
@@ -73,6 +85,12 @@ vi.mock('@tla/ingestion', () => ({
 
 vi.mock('@tla/translator', () => ({
   TranslationCompiler: MockTranslationCompiler,
+  buildTranslationReport: (...args: unknown[]) => mockBuildTranslationReport(...args),
+  buildAuditEntry: (...args: unknown[]) => mockBuildAuditEntry(...args),
+  appendAuditEntry: (...args: unknown[]) => mockAppendAuditEntry(...args),
+  buildConfidenceReport: (...args: unknown[]) => mockBuildConfidenceReport(...args),
+  generateRemediationPack: (...args: unknown[]) => mockGenerateRemediationPack(...args),
+  buildMigrationPack: (...args: unknown[]) => mockBuildMigrationPack(...args),
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -127,6 +145,7 @@ const fakeTranslationResult = {
     'variables.tf': '# vars',
     'outputs.tf': '# outputs',
     'providers.tf': '# providers',
+    'terraform.tf': '# terraform',
   },
   manifest: {
     version: '1.0.0',
@@ -220,7 +239,11 @@ describe('handleTranslate — file mode (scope: full)', () => {
 
     expect(result.success).toBe(true);
     expect(result.target).toBe('azure');
-    expect(result.files).toEqual(['main.tf', 'variables.tf', 'outputs.tf', 'providers.tf']);
+    expect(result.files).toEqual([
+      'main.tf', 'variables.tf', 'outputs.tf', 'providers.tf', 'terraform.tf',
+      'manifest.json', 'translation-report.md',
+      'audit-log.jsonl', 'confidence-report.json',
+    ]);
     expect(result.manifest).toEqual({ translated: 2, expanded: 1, partial: 0, blocked: 0, advisory: 0 });
     expect(result.confidence).toBe(0.88);
     expect(result.findings).toEqual([]);
@@ -362,7 +385,7 @@ describe('handleTranslate — directory mode (scope: full)', () => {
       buildFakeRegistryManager(),
     );
     expect(result.success).toBe(true);
-    expect(result.files).toHaveLength(4);
+    expect(result.files).toHaveLength(9);
   });
 });
 
@@ -411,7 +434,7 @@ describe('handleTranslate — inline mode (scope: full)', () => {
       buildFakeRegistryManager(),
     );
     expect(result.success).toBe(true);
-    expect(result.files).toHaveLength(4);
+    expect(result.files).toHaveLength(9);
   });
 });
 

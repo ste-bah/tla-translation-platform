@@ -45,6 +45,12 @@ const {
   mockStat,
   mockMkdir,
   mockWriteFile,
+  mockBuildTranslationReport,
+  mockBuildAuditEntry,
+  mockAppendAuditEntry,
+  mockBuildConfidenceReport,
+  mockGenerateRemediationPack,
+  mockBuildMigrationPack,
 } = vi.hoisted(() => {
   const mockDependencyGraphBuild = vi.fn();
   const mockIrEmitterEmit = vi.fn();
@@ -73,6 +79,12 @@ const {
     mockStat: vi.fn(),
     mockMkdir: vi.fn().mockResolvedValue(undefined),
     mockWriteFile: vi.fn().mockResolvedValue(undefined),
+    mockBuildTranslationReport: vi.fn().mockReturnValue('# Translation Report'),
+    mockBuildAuditEntry: vi.fn().mockReturnValue({ timestamp: '2026-01-01', runId: 'test' }),
+    mockAppendAuditEntry: vi.fn().mockResolvedValue(undefined),
+    mockBuildConfidenceReport: vi.fn().mockReturnValue({ confidenceOverall: 0.88 }),
+    mockGenerateRemediationPack: vi.fn().mockReturnValue({ tasks: [], summary: { critical: 0, high: 0, medium: 0, low: 0, total: 0 }, estimatedTotalEffort: '0 hours' }),
+    mockBuildMigrationPack: vi.fn().mockReturnValue(null),
   };
 });
 
@@ -88,6 +100,12 @@ vi.mock('@tla/ingestion', () => ({
 
 vi.mock('@tla/translator', () => ({
   TranslationCompiler: MockTranslationCompiler,
+  buildTranslationReport: (...args: unknown[]) => mockBuildTranslationReport(...args),
+  buildAuditEntry: (...args: unknown[]) => mockBuildAuditEntry(...args),
+  appendAuditEntry: (...args: unknown[]) => mockAppendAuditEntry(...args),
+  buildConfidenceReport: (...args: unknown[]) => mockBuildConfidenceReport(...args),
+  generateRemediationPack: (...args: unknown[]) => mockGenerateRemediationPack(...args),
+  buildMigrationPack: (...args: unknown[]) => mockBuildMigrationPack(...args),
 }));
 
 vi.mock('@tla/registry', () => ({
@@ -145,6 +163,7 @@ const fakeTranslationResult = {
     'variables.tf': '# vars',
     'outputs.tf': '# outputs',
     'providers.tf': '# providers',
+    'terraform.tf': '# terraform',
   },
   manifest: {
     version: '1.0.0',
@@ -335,7 +354,7 @@ describe('registerTranslate — file input + azure target', () => {
 
     expect(exitCode).toBeUndefined();
     expect(stdout).toContain('Translation Complete');
-    expect(mockWriteFile).toHaveBeenCalledTimes(4);
+    expect(mockWriteFile).toHaveBeenCalledTimes(8);
     expect(mockMkdir).toHaveBeenCalledWith(
       expect.stringContaining('test-out'),
       { recursive: true },
@@ -366,7 +385,7 @@ describe('registerTranslate — directory input + gcp target', () => {
     expect(stdout).toContain('Translation Complete');
     expect(mockParseHclDirectory).toHaveBeenCalled();
     expect(mockParseHclFile).not.toHaveBeenCalled();
-    expect(mockWriteFile).toHaveBeenCalledTimes(4);
+    expect(mockWriteFile).toHaveBeenCalledTimes(8);
   });
 });
 
@@ -599,7 +618,7 @@ describe('registerTranslate — error handling', () => {
     ]);
 
     expect(exitCode).toBe(1);
-    expect(stderr).toContain('--scope must be full, assessment, or selected');
+    expect(stderr).toContain('--scope must be full, assessment, selected, stack, or module');
   });
 });
 
@@ -831,7 +850,7 @@ describe('registerTranslate — pipeline wiring', () => {
       '--output', '/tmp/out',
     ]);
 
-    expect(mockWriteFile).toHaveBeenCalledTimes(4);
+    expect(mockWriteFile).toHaveBeenCalledTimes(8);
     for (const call of mockWriteFile.mock.calls) {
       expect(call[2]).toBe('utf-8');
     }

@@ -72,15 +72,16 @@ function makeAssemblyInput(overrides: Partial<AssemblyInput> = {}): AssemblyInpu
 
 describe('assembleFiles', () => {
   describe('file structure', () => {
-    it('should produce 4 files: main.tf, variables.tf, outputs.tf, providers.tf', () => {
+    it('should produce 5 files: main.tf, variables.tf, outputs.tf, providers.tf, terraform.tf', () => {
       const input = makeAssemblyInput();
       const files = assembleFiles(input);
 
-      expect(files.size).toBe(4);
+      expect(files.size).toBe(5);
       expect(files.has('main.tf')).toBe(true);
       expect(files.has('variables.tf')).toBe(true);
       expect(files.has('outputs.tf')).toBe(true);
       expect(files.has('providers.tf')).toBe(true);
+      expect(files.has('terraform.tf')).toBe(true);
     });
 
     it('should produce "No resources translated" comment when no resources', () => {
@@ -135,12 +136,12 @@ describe('assembleFiles', () => {
     it('should generate terraform required_providers block for azure', () => {
       const input = makeAssemblyInput({ targetProvider: 'azure' });
       const files = assembleFiles(input);
-      const providers = files.get('providers.tf')!;
+      const terraform = files.get('terraform.tf')!;
 
-      expect(providers).toContain('terraform');
-      expect(providers).toContain('required_providers');
-      expect(providers).toContain('hashicorp/azurerm');
-      expect(providers).toContain('~> 3.0');
+      expect(terraform).toContain('terraform');
+      expect(terraform).toContain('required_providers');
+      expect(terraform).toContain('hashicorp/azurerm');
+      expect(terraform).toContain('~> 3.0');
     });
 
     it('should generate terraform required_providers block for gcp', () => {
@@ -149,10 +150,10 @@ describe('assembleFiles', () => {
         options: makeCompilerOptions({ targetProvider: 'gcp' }),
       });
       const files = assembleFiles(input);
-      const providers = files.get('providers.tf')!;
+      const terraform = files.get('terraform.tf')!;
 
-      expect(providers).toContain('hashicorp/google');
-      expect(providers).toContain('~> 5.0');
+      expect(terraform).toContain('hashicorp/google');
+      expect(terraform).toContain('~> 5.0');
     });
   });
 
@@ -388,6 +389,7 @@ describe('assembleFiles', () => {
 
       expect(files1.get('main.tf')).toBe(files2.get('main.tf'));
       expect(files1.get('providers.tf')).toBe(files2.get('providers.tf'));
+      expect(files1.get('terraform.tf')).toBe(files2.get('terraform.tf'));
       expect(files1.get('variables.tf')).toBe(files2.get('variables.tf'));
       expect(files1.get('outputs.tf')).toBe(files2.get('outputs.tf'));
     });

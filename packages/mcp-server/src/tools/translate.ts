@@ -24,7 +24,15 @@ import {
   IrEmitter,
   identifyAwsServices,
 } from '@tla/ingestion';
-import { TranslationCompiler, buildTranslationReport } from '@tla/translator';
+import {
+  TranslationCompiler,
+  buildTranslationReport,
+  buildAuditEntry,
+  appendAuditEntry,
+  buildConfidenceReport,
+  generateRemediationPack,
+  buildMigrationPack,
+} from '@tla/translator';
 import type { CanonicalIR, TranslationManifest, TranslationFinding } from '@tla/shared';
 
 import type { RegistryManager } from '../registry-manager.js';
@@ -148,6 +156,7 @@ export async function handleTranslate(
         : fullIr;
 
     // 8. Run translation compiler
+    const startTime = Date.now();
     const compiler = new TranslationCompiler(registry);
     const translationResult = compiler.translate(ir, {
       targetProvider: args.target,
@@ -172,13 +181,33 @@ export async function handleTranslate(
     }
 
     // 10b. Write manifest.json
-    await writeFile(join(outputDir, 'manifest.json'), JSON.stringify(translationResult.manifest, null, 2), 'utf-8');
+    const manifestJson = JSON.stringify(translationResult.manifest, null, 2);
+    await writeFile(join(outputDir, 'manifest.json'), manifestJson, 'utf-8');
     writtenFiles.push('manifest.json');
 
     // 10c. Write translation-report.md
     const report = buildTranslationReport(translationResult, args.source, args.target, outputDir);
     await writeFile(join(outputDir, 'translation-report.md'), report, 'utf-8');
     writtenFiles.push('translation-report.md');
+
+    // 10d. Write audit trail entry (append-only JSONL)
+    const durationMs = Date.now() - startTime;
+    const auditEntry = buildAuditEntry(translationResult, args.source, args.target, durationMs, manifestJson);
+    await appendAuditEntry(outputDir, auditEntry);
+    writtenFiles.push('audit-log.jsonl');
+
+    // 10e. Write confidence-report.json
+    const confidenceReport = buildConfidenceReport(translationResult);
+    await writeFile(join(outputDir, 'confidence-report.json'), JSON.stringify(confidenceReport, null, 2), 'utf-8');
+    writtenFiles.push('confidence-report.json');
+
+    // 10f. Write migration-pack.md (only when blocked/advisory resources exist)
+    const remediationPack = generateRemediationPack(translationResult.manifest, ir);
+    const migrationPackMd = buildMigrationPack(remediationPack);
+    if (migrationPackMd !== null) {
+      await writeFile(join(outputDir, 'migration-pack.md'), migrationPackMd, 'utf-8');
+      writtenFiles.push('migration-pack.md');
+    }
 
     // 11. Build summary
     const manifest = translationResult.manifest;

@@ -188,7 +188,8 @@ function renderResource(
  * - `main.tf` - All resource blocks
  * - `variables.tf` - Variable declarations (placeholder)
  * - `outputs.tf` - Output declarations (placeholder)
- * - `providers.tf` - Provider and terraform blocks
+ * - `terraform.tf` - Terraform required_version and required_providers
+ * - `providers.tf` - Provider configuration block
  *
  * Resources are sorted by targetType then targetName for determinism.
  */
@@ -251,10 +252,15 @@ export function assembleFiles(input: AssemblyInput): Map<string, string> {
   ].join('\n');
   files.set('outputs.tf', outputsContent);
 
-  // providers.tf
-  const providersContent = [
+  // terraform.tf — required_version + required_providers
+  const terraformContent = [
     terraformBlock(targetProvider, options),
     '',
+  ].join('\n');
+  files.set('terraform.tf', terraformContent);
+
+  // providers.tf — provider configuration only
+  const providersContent = [
     providerBlock(targetProvider, options),
     '',
   ].join('\n');

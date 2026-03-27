@@ -3,7 +3,6 @@
 > Translate AWS Terraform to Azure and GCP with full service equivalence registry, validation, and portable authoring.
 
 ![Tests](https://img.shields.io/badge/tests-2500%2B%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Node](https://img.shields.io/badge/node-22%2B-green)
 ![Go](https://img.shields.io/badge/go-1.22%2B-00ADD8)
@@ -47,8 +46,8 @@ graph LR
 
 ```bash
 # Clone and install
-git clone <repo-url>
-cd Translation_Platform
+git clone https://github.com/ste-bah/tla-translation-platform.git
+cd tla-translation-platform
 pnpm install
 pnpm build
 

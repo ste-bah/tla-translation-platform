@@ -137,7 +137,7 @@ describe('TranslationCompiler', () => {
       expect(result.resources).toHaveLength(0);
     });
 
-    it('should produce files (at least main.tf, providers.tf)', () => {
+    it('should produce files (at least main.tf, providers.tf, terraform.tf)', () => {
       const registry = makeMockRegistry(new Map());
       const compiler = new TranslationCompiler(registry);
       const result = compiler.translate(makeCanonicalIR(), makeCompilerOptions());
@@ -145,6 +145,7 @@ describe('TranslationCompiler', () => {
       expect(Object.keys(result.files).length).toBeGreaterThanOrEqual(2);
       expect(result.files['main.tf']).toBeDefined();
       expect(result.files['providers.tf']).toBeDefined();
+      expect(result.files['terraform.tf']).toBeDefined();
     });
 
     it('should produce a valid manifest with zero counts', () => {
@@ -517,6 +518,7 @@ describe('TranslationCompiler', () => {
       // Compare files content
       expect(result1.files['main.tf']).toBe(result2.files['main.tf']);
       expect(result1.files['providers.tf']).toBe(result2.files['providers.tf']);
+      expect(result1.files['terraform.tf']).toBe(result2.files['terraform.tf']);
 
       // Compare resource counts
       expect(result1.resources.length).toBe(result2.resources.length);
