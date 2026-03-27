@@ -24,7 +24,7 @@ import {
   IrEmitter,
   identifyAwsServices,
 } from '@tla/ingestion';
-import { TranslationCompiler } from '@tla/translator';
+import { TranslationCompiler, buildTranslationReport } from '@tla/translator';
 import type { CanonicalIR, TranslationManifest, TranslationFinding } from '@tla/shared';
 
 import type { RegistryManager } from '../registry-manager.js';
@@ -170,6 +170,15 @@ export async function handleTranslate(
       await writeFile(filePath, content, 'utf-8');
       writtenFiles.push(fileName);
     }
+
+    // 10b. Write manifest.json
+    await writeFile(join(outputDir, 'manifest.json'), JSON.stringify(translationResult.manifest, null, 2), 'utf-8');
+    writtenFiles.push('manifest.json');
+
+    // 10c. Write translation-report.md
+    const report = buildTranslationReport(translationResult, args.source, args.target, outputDir);
+    await writeFile(join(outputDir, 'translation-report.md'), report, 'utf-8');
+    writtenFiles.push('translation-report.md');
 
     // 11. Build summary
     const manifest = translationResult.manifest;

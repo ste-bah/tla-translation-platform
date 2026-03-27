@@ -134,52 +134,45 @@ Open `azure-output/manifest.json`. It contains:
 ```json
 {
   "version": "1.0.0",
-  "source": {
-    "provider": "aws",
-    "directory": "./sample",
-    "resourceCount": 3
+  "registryVersion": "1.0.0",
+  "target": "azure",
+  "counts": {
+    "total": 3,
+    "translated": 2,
+    "expanded": 0,
+    "partial": 0,
+    "blocked": 0,
+    "advisory": 1
   },
-  "target": {
-    "provider": "azure",
-    "directory": "./azure-output"
-  },
-  "resources": [
+  "entries": [
     {
+      "sourceId": "main",
       "sourceType": "aws_vpc",
-      "sourceName": "main",
-      "targetType": "azurerm_virtual_network",
-      "targetName": "main",
-      "band": "P2",
-      "engine": "parametric",
+      "status": "translated",
+      "targetResources": [
+        {
+          "targetType": "azurerm_virtual_network",
+          "targetName": "main",
+          "attributes": {},
+          "sourceId": "main",
+          "traceability": { "sourceId": "main", "engine": "parametric", "confidence": 0.85 }
+        }
+      ],
       "confidence": 0.85,
-      "findings": []
-    },
-    {
-      "sourceType": "aws_s3_bucket",
-      "sourceName": "assets",
-      "targetType": "azurerm_storage_account",
-      "targetName": "assets",
-      "band": "P1",
-      "engine": "direct",
-      "confidence": 0.92,
       "findings": []
     }
   ],
-  "summary": {
-    "translated": 3,
-    "advisory": 0,
-    "blocked": 0,
-    "overallConfidence": 0.88
-  },
-  "findings": []
+  "findings": [],
+  "confidenceOverall": 0.88
 }
 ```
 
 Key fields:
-- **band** -- which translation band handled the resource (see Translation Bands below)
-- **engine** -- which engine performed the translation
-- **confidence** -- 0.0 to 1.0 score for how complete the translation is
+- **status** -- translation outcome: translated, expanded, partial, blocked, or advisory
+- **confidence** -- 0.0 to 1.0 score for translation completeness
 - **findings** -- per-resource warnings, blockers, or informational notes
+- **targetResources** -- the Azure/GCP resources generated for this source resource
+- **traceability** -- links back to the source resource and engine used
 
 ## Understanding the Output
 
@@ -193,8 +186,14 @@ The output directory contains five files:
 | `variables.tf` | Input variables (subscription_id, region, etc.) |
 | `outputs.tf` | Output values carried over from the source |
 | `manifest.json` | Translation metadata, confidence scores, findings |
+| `translation-report.md` | Human-readable translation summary with findings |
+| `audit-log.jsonl` | Append-only audit trail for compliance |
+| `confidence-report.json` | Per-resource confidence scores and escalation flags |
+| `migration-pack.md` | Remediation tasks for blocked/advisory resources (conditional) |
 
 For Azure, `providers.tf` includes the required `features {}` block. For GCP, it includes `project` and `region` from variables.
+
+> **Note:** Translation now also produces `translation-report.md` (human-readable summary), `audit-log.jsonl` (compliance audit trail), `confidence-report.json` (per-resource confidence with escalation flags), and conditionally `migration-pack.md` (remediation tasks when blocked or advisory resources exist).
 
 ## Translation Bands
 
@@ -232,6 +231,24 @@ cd azure-output
 terraform init
 terraform validate
 ```
+
+## Running a Standalone Assessment
+
+```bash
+npx tla assess ./sample --target azure
+```
+
+Assessment produces a readiness report with per-resource risk classification (safe/review/blocked), overall readiness score, and estimated manual effort -- without generating translation output.
+
+## Generating State Migration Commands
+
+After translating, generate Terraform state migration commands:
+
+```bash
+npx tla migrate-state --state terraform.tfstate --translated-dir ./azure-output --target azure
+```
+
+This produces move, import, and remove commands for migrating existing Terraform state to the new target provider structure.
 
 ## Translating to GCP
 

@@ -95,8 +95,12 @@ function providerBlock(target: CloudProvider, options: CompilerOptions): string 
 
 /**
  * Generates the terraform required_providers block.
+ *
+ * Renders manually instead of delegating to printHclBlock because the
+ * terraform block mixes attributes (`required_version = ...`) with
+ * sub-blocks (`required_providers { ... }`) that must NOT have `=`.
  */
-function terraformBlock(target: CloudProvider, options: CompilerOptions): string {
+function terraformBlock(target: CloudProvider, _options: CompilerOptions): string {
   const providerName = target === 'azure' ? 'azurerm' : target === 'gcp' ? 'google' : target;
 
   const sourceMap: Record<string, string> = {
@@ -109,18 +113,36 @@ function terraformBlock(target: CloudProvider, options: CompilerOptions): string
     google: '~> 5.0',
   };
 
-  const requiredProviders: Record<string, unknown> = {
-    [providerName]: {
-      source: sourceMap[providerName] ?? `hashicorp/${providerName}`,
-      version: versionMap[providerName] ?? '~> 1.0',
-    },
-  };
+  const source = sourceMap[providerName] ?? `hashicorp/${providerName}`;
+  const version = versionMap[providerName] ?? '~> 1.0';
 
-  const body: Record<string, unknown> = {
-    required_providers: requiredProviders,
-  };
+  return renderTerraformBlock(providerName, source, version);
+}
 
-  return printHclBlock('terraform', [], body, options);
+/**
+ * Renders the terraform block with correct HCL syntax:
+ *   - `required_version` is an attribute (uses `=`)
+ *   - `required_providers` is a sub-block (no `=`)
+ *   - Each provider inside `required_providers` is a sub-block (no `=`)
+ *   - `source` and `version` inside each provider are attributes (use `=`)
+ */
+function renderTerraformBlock(
+  providerName: string,
+  source: string,
+  version: string,
+): string {
+  const lines: string[] = [];
+  lines.push('terraform {');
+  lines.push('  required_version = "~> 1.8"');
+  lines.push('');
+  lines.push('  required_providers {');
+  lines.push(`    ${providerName} {`);
+  lines.push(`      source  = "${source}"`);
+  lines.push(`      version = "${version}"`);
+  lines.push('    }');
+  lines.push('  }');
+  lines.push('}');
+  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------

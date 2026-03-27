@@ -2,9 +2,17 @@
   "name": "tla-terraform-extension",
   "displayName": "TLA Terraform Translation",
   "version": "0.1.0",
+  "publisher": "tla-platform",
+  "categories": ["Other"],
   "engines": { "vscode": "^1.85.0" },
   "activationEvents": ["onLanguage:terraform"],
-  "main": "./src/extension.js",
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "package": "vsce package --no-dependencies",
+    "test": "vitest run"
+  },
   "contributes": {
     "configuration": {
       "title": "TLA Translation",
@@ -14,5 +22,11 @@
       }
     }
   },
-  "devDependencies": { "@types/vscode": "^1.85.0", "vitest": "^3.1.1", "typescript": "~5.8.3" }
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "typescript": "~5.8.3",
+    "vitest": "^3.1.1"
+  }
 }

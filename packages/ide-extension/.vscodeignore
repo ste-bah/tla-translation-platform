@@ -1,0 +1,8 @@
+src/**
+tests/**
+node_modules/**
+tsconfig.json
+vitest.config.ts
+.eslintrc*
+*.ts
+!dist/**

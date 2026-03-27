@@ -20,11 +20,16 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@tla/shared": "workspace:*",
     "@tla/registry": "workspace:*",
+    "@tla/ingestion": "workspace:*",
+    "@tla/translator": "workspace:*",
+    "@tla/validator": "workspace:*",
     "commander": "^13.1.0"
   },
   "devDependencies": {

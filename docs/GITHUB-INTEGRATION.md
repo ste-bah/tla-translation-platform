@@ -79,7 +79,7 @@ cd ./azure-terraform && terraform init && terraform plan
 
 ### What each step produces
 
-- **Step 2** generates `.tf` files (main, providers, terraform, variables, outputs) plus a `translation-report.md` manifest with per-resource findings and confidence scores.
+- **Step 2** generates `.tf` files (main, providers, terraform, variables, outputs) plus `manifest.json` (machine-readable manifest), `translation-report.md` (human-readable summary), `audit-log.jsonl` (audit trail), and `confidence-report.json` (per-resource confidence).
 - **Step 3** validates the generated HCL for syntactic correctness, checks for policy violations (e.g. public access, missing encryption), verifies compliance with cloud provider conventions, and flags low-confidence translations.
 - **Step 5** requires provider credentials (`ARM_SUBSCRIPTION_ID`, `ARM_TENANT_ID`, etc. for Azure or `GOOGLE_PROJECT` for GCP). This is optional but recommended before applying.
 

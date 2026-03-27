@@ -2,6 +2,9 @@
 export { TranslationCompiler } from './compiler/translation-compiler.js';
 export { buildTranslationPlan } from './compiler/translation-planner.js';
 export { assembleFiles } from './compiler/file-assembler.js';
+export { buildTranslationReport } from './compiler/report-writer.js';
+export { buildConfidenceReport } from './compiler/confidence-report.js';
+export type { ConfidenceReport, ResourceConfidence } from './compiler/confidence-report.js';
 
 // Engines
 export { engineRegistry, getEngine } from './engines/index.js';
@@ -107,7 +110,7 @@ export type {
 } from './preview/plan-previewer.js';
 
 // Remediation pack generator
-export { generateRemediationPack } from './remediation/index.js';
+export { generateRemediationPack, buildMigrationPack } from './remediation/index.js';
 export type {
   RemediationTask,
   RemediationTaskType,
@@ -129,3 +132,7 @@ export type {
   TerraformRunSuccess,
   TerraformRunFailure,
 } from './validation/index.js';
+
+// Audit trail
+export { buildAuditEntry, appendAuditEntry } from './audit/index.js';
+export type { AuditEntry } from './audit/index.js';

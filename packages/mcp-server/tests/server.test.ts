@@ -561,28 +561,9 @@ describe('confidence-check tool', () => {
 // tests/tools/validate.test.ts.
 // migrate-state is now fully implemented (TASK-MCP-005). Detailed tests live in
 // tests/tools/migrate-state.test.ts.
-
-describe('stub tools', () => {
-  // translate, validate, and migrate-state are excluded — they are implemented
-  const STUB_TOOLS = ['assess'] as const;
-
-  let server: McpServer;
-
-  beforeEach(async () => {
-    server = new McpServer({ name: 'test', version: '0.0.0' });
-    const registry = await buildFakeRegistryManager([createTestEntry()]);
-    registerTools(server, registry, { ...defaultConfig, terraformBin: '/usr/bin/terraform' });
-  });
-
-  it.each(STUB_TOOLS)('"%s" returns not_implemented', async (name) => {
-    let args: Record<string, unknown> = {};
-    if (name === 'assess') args = { source_path: '/tmp/main.tf', target_provider: 'azure' };
-
-    const result = await callTool(server, name, args);
-    const body = parseResult(result) as { error: string };
-    expect(body.error).toBe('not_implemented');
-  });
-});
+// assess is now fully implemented (TASK-REM-005). Detailed tests live in
+// tests/tools/assess.test.ts.
+// All tools are implemented — no stub-tools describe block needed.
 
 // ---------------------------------------------------------------------------
 // Resource registration tests

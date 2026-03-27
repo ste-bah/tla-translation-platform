@@ -1,7 +1,7 @@
 // Parsers
 export { parseHclFile, parseHclDirectory } from './parser/hcl-parser.js';
 export type { DirectoryParseResult } from './parser/hcl-parser.js';
-export { parsePlanJson } from './parser/plan-parser.js';
+export { parsePlanJson, extractPlanAddresses } from './parser/plan-parser.js';
 export { parseStateJson } from './parser/state-parser.js';
 
 // Discovery

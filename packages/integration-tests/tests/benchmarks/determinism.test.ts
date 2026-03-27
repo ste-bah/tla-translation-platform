@@ -1,60 +1,109 @@
 /**
- * TASK-GAP-006: Determinism Benchmarks
+ * TASK-NFR-002: Determinism Benchmarks
  *
- * Runs full translation of the aws-reference-stack fixture 3 times and asserts
+ * Runs full translation of a fixed 50-resource fixture 3 times and asserts
  * that every run produces bit-for-bit identical output (after normalization).
  *
  * Normalization:
  *   - JSON.stringify with sorted keys
  *   - Strip timestamp fields
- *   - Sort file-name arrays
+ *   - Sort arrays for order-independent comparison
  *
  * Excluded from the default test run — use `npm run test:bench` to execute.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID, createHash } from 'node:crypto';
 import { parseHclDirectory, DependencyGraph, IrEmitter, resolveRegistryKey } from '@tla/ingestion';
 import { TranslationCompiler } from '@tla/translator';
-import { RegistryApi, loadRegistryFromDirectory, validateRegistryEntries } from '@tla/registry';
+import { generateFixture, getFixtureResourceTypes } from './generate-fixture.js';
 import type { RegistryEntry } from '@tla/shared';
 import type { CompilerOptions, TranslationResult } from '@tla/shared';
 import type { RegistryApi as RegistryApiType } from '@tla/registry';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
 // ---------------------------------------------------------------------------
-// Paths
+// Mock registry — same pattern as performance.test.ts
 // ---------------------------------------------------------------------------
 
-const FIXTURE_DIR = resolve(__dirname, '../../fixtures/aws-reference-stack');
-const REGISTRY_DIR = resolve(__dirname, '../../../registry/data');
+function makeMockEntry(awsService: string, index: number): RegistryEntry {
+  const n = String(index).padStart(3, '0');
+  return {
+    registry_entry_id: `SER-BENCH-MOCK-${n}`,
+    aws_service: awsService,
+    aws_family: 'compute',
+    azure_targets: [`azurerm_mock_${awsService}`],
+    gcp_targets: [`google_mock_${awsService}`],
+    mapping_type: 'direct',
+    output_mode: 'native_emit_only',
+    band: 'P1',
+    confidence: 0.85,
+    portable_provider_candidate: false,
+    behavioral_gaps: [],
+    manual_review_required: false,
+    review_domains: [],
+    test_status: 'unit_tested',
+    owner: 'benchmark',
+    registry_version: '2025.03.01',
+    last_updated: '2025-03-01T00:00:00Z',
+    related_requirements: [],
+    related_edge_cases: [],
+  };
+}
 
-// ---------------------------------------------------------------------------
-// Bridge registry (same pattern as e2e-azure.test.ts)
-// ---------------------------------------------------------------------------
+function buildMockRegistry(): RegistryApiType {
+  const entryMap = new Map<string, RegistryEntry>();
+  const fixtureTypes = getFixtureResourceTypes();
+  const seenKeys = new Set<string>();
 
-function makeBridgeRegistry(realRegistry: RegistryApi): RegistryApiType {
+  fixtureTypes.forEach((tfType, idx) => {
+    const registryKey = resolveRegistryKey(tfType);
+    const key = registryKey ?? tfType;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      entryMap.set(key, makeMockEntry(key, idx + 1));
+    }
+  });
+
   return {
     lookup: (awsResourceType: string): RegistryEntry | undefined => {
+      const direct = entryMap.get(awsResourceType);
+      if (direct) return direct;
       const shortKey = resolveRegistryKey(awsResourceType);
-      if (shortKey !== undefined) {
-        return realRegistry.lookup(shortKey);
-      }
-      return realRegistry.lookup(awsResourceType);
+      if (shortKey !== undefined) return entryMap.get(shortKey);
+      return undefined;
     },
     lookupMany: (types: ReadonlyArray<string>): Map<string, RegistryEntry> => {
       const result = new Map<string, RegistryEntry>();
       for (const t of types) {
-        const entry = makeBridgeRegistry(realRegistry).lookup(t);
+        const shortKey = resolveRegistryKey(t);
+        const key = shortKey ?? t;
+        const entry = entryMap.get(key);
         if (entry) result.set(t, entry);
       }
       return result;
     },
   } as unknown as RegistryApiType;
+}
+
+// ---------------------------------------------------------------------------
+// Temp dir helpers
+// ---------------------------------------------------------------------------
+
+function createTempDir(): string {
+  const dir = join(tmpdir(), `tla-det-${randomUUID()}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function cleanupTempDir(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +147,9 @@ function normalizeValue(value: unknown): unknown {
  * Normalize a TranslationResult for determinism comparison:
  *   1. Strip timestamps
  *   2. Sort all arrays
- *   3. Sort file names (Object.keys order is not guaranteed)
+ *   3. Sort file names
  */
 function normalizeResult(result: TranslationResult): string {
-  // Normalize the files map by sorting by file name first
   const sortedFiles: Record<string, unknown> = {};
   for (const filename of Object.keys(result.files).sort()) {
     sortedFiles[filename] = result.files[filename];
@@ -122,23 +170,31 @@ function sha256(input: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Suite-level setup — build a shared registry (init once)
+// Suite-level setup
 // ---------------------------------------------------------------------------
 
 let registry: RegistryApiType;
+let fixtureDir: string;
 
-beforeAll(async () => {
-  const realRegistry = new RegistryApi(REGISTRY_DIR, loadRegistryFromDirectory, validateRegistryEntries);
-  await realRegistry.init();
-  registry = makeBridgeRegistry(realRegistry);
-}, 30_000);
+beforeAll(() => {
+  registry = buildMockRegistry();
+
+  // Generate a fixed 50-resource fixture (written once, read 3 times)
+  fixtureDir = createTempDir();
+  const hcl = generateFixture(50);
+  writeFileSync(join(fixtureDir, 'main.tf'), hcl, 'utf8');
+}, 10_000);
+
+afterAll(() => {
+  if (fixtureDir) cleanupTempDir(fixtureDir);
+});
 
 // ---------------------------------------------------------------------------
 // Helper: run the full pipeline from scratch each time
 // ---------------------------------------------------------------------------
 
 async function runFullPipeline(): Promise<TranslationResult> {
-  const parseResult = await parseHclDirectory(FIXTURE_DIR);
+  const parseResult = await parseHclDirectory(fixtureDir);
   expect(parseResult.errors).toHaveLength(0);
 
   const graph = new DependencyGraph();
@@ -150,6 +206,8 @@ async function runFullPipeline(): Promise<TranslationResult> {
   const options: CompilerOptions = {
     targetProvider: 'azure',
     registryVersion: '2025.03.01',
+    emitComments: true,
+    sortKeys: true,
   };
 
   const compiler = new TranslationCompiler(registry);
@@ -162,7 +220,7 @@ async function runFullPipeline(): Promise<TranslationResult> {
 
 describe('Determinism', () => {
   it(
-    'produces identical SHA-256 hash across 3 independent translation runs',
+    'produces identical SHA-256 hash across 3 independent translation runs on 50 resources',
     async () => {
       const hashes: string[] = [];
 

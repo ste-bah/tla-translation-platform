@@ -21,25 +21,11 @@ import { handleTranslate } from './translate.js';
 import { handleEquivalenceLookup } from './equivalence-lookup.js';
 import { handleValidate } from './validate.js';
 import { handleMigrateState } from './migrate-state.js';
+import { handleAssess } from './assess.js';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-function notImplemented(toolName: string): { content: Array<{ type: 'text'; text: string }> } {
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify({
-          error: 'not_implemented',
-          tool: toolName,
-          message: `${toolName} is a stub. Full implementation arrives in a later task.`,
-        }),
-      },
-    ],
-  };
-}
 
 function errorResponse(message: string): { content: Array<{ type: 'text'; text: string }>; isError: true } {
   return {
@@ -255,10 +241,11 @@ export function registerTools(
     'assess',
     'Assess a Terraform configuration — produce an inventory and confidence report without translating.',
     AssessSchema.shape,
-    async (_args) => {
-      const result = await registry.getRegistry();
-      if (!result.ok) return errorResponse(result.error);
-      return notImplemented('assess');
+    async (args) => {
+      return handleAssess(
+        { source_path: args.source_path, target_provider: args.target_provider },
+        registry,
+      );
     },
   );
 

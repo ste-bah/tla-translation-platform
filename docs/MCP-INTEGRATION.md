@@ -139,7 +139,7 @@ Claude should list all 10 tools and 4 resources.
   "success": true,
   "target": "azure",
   "outputDir": "/tmp/tla-output-azure-abc123",
-  "files": ["main.tf", "providers.tf", "terraform.tf", "variables.tf", "outputs.tf"],
+  "files": ["main.tf", "providers.tf", "terraform.tf", "variables.tf", "outputs.tf", "manifest.json", "translation-report.md", "audit-log.jsonl", "confidence-report.json"],
   "manifest": {
     "translated": 8,
     "expanded": 2,
@@ -344,7 +344,7 @@ Provide either `service` (single) or `services` (bulk), not both.
 
 ### 4.5 `assess`
 
-**Description:** Assess a Terraform configuration -- produce an inventory and confidence report without translating. (Stub -- full implementation in a later task.)
+**Description:** Assess a Terraform configuration -- produce an inventory, readiness report, and confidence summary without translating.
 
 **Input schema:**
 
@@ -616,6 +616,7 @@ The `tla-terraform-extension` provides real-time feedback while editing Terrafor
 ```bash
 cd packages/ide-extension
 npm run build
+npm run package
 # Install in VS Code:
 code --install-extension tla-terraform-extension-0.1.0.vsix
 ```

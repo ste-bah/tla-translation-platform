@@ -96,6 +96,19 @@ flowchart LR
 | 8. Codegen | `@tla/translator` | `AzureCodeGenerator` / `GcpCodeGenerator` | `TranslatedResource[]` | `.tf` file map |
 | 9. Validation | `@tla/validator` | `checkEquivalence`, `evaluatePolicies`, etc. | Translated dir + IR | Validation reports |
 
+### Translation Output Artifacts
+
+Every translation run produces up to six output files:
+
+| File | Purpose |
+|------|---------|
+| `.tf` files | Generated Terraform (main, providers, terraform, variables, outputs) |
+| `manifest.json` | Machine-readable translation manifest with per-resource confidence |
+| `translation-report.md` | Human-readable summary with findings |
+| `audit-log.jsonl` | Append-only audit trail for compliance |
+| `confidence-report.json` | Per-resource confidence scores and escalation flags |
+| `migration-pack.md` | Remediation tasks for blocked/advisory resources (conditional) |
+
 ---
 
 ## 3. Package Dependency Graph
@@ -128,7 +141,7 @@ graph BT
     mcp --> translator
     mcp --> validator
 
-    cli["@tla/cli"]
+    cli["@tla/cli<br/>(6 commands: translate,<br/>validate, assess,<br/>migrate-state, ...)"]
     cli -.-> ingestion
     cli -.-> translator
     cli -.-> validator
@@ -406,23 +419,21 @@ graph LR
 
 ## 7. Validation Pipeline
 
-The validator runs up to 7 checks in strict dependency order. Each check can be individually selected. Downstream checks are skipped if an upstream dependency is unavailable.
+The validator runs up to 6 checks in strict dependency order. Each check can be individually selected. Downstream checks are skipped if an upstream dependency is unavailable.
 
 ```mermaid
 %%{init: {"theme": "neutral"}}%%
 flowchart TD
     Input["Translated .tf directory<br/>+ optional CanonicalIR JSON"]
 
-    Input --> Syntax["<b>1. Syntax Check</b><br/>HCL parse validity<br/>(always runs)"]
-    Syntax --> HCL["<b>2. HCL Validation</b><br/>terraform validate<br/>(skipped if binary missing)"]
-    HCL --> Policy["<b>3. Policy Check</b><br/>OPA policy engine<br/>+ built-in rules"]
-    Policy --> Compliance["<b>4. Compliance Check</b><br/>CIS Basic / Advanced<br/>8 built-in rules"]
-    Compliance --> Semantic["<b>5. Semantic Diff</b><br/>Equivalence checking<br/>(requires IR file)"]
-    Semantic --> Confidence["<b>6. Confidence Scoring</b><br/>Per-resource + stack-level<br/>(requires IR file)"]
-    Confidence --> Cost["<b>7. Cost Estimation</b><br/>Delta analysis<br/>(requires IR file)"]
+    Input --> Syntax["<b>1. Syntax Check</b><br/>HCL parse validity +<br/>optional terraform validate<br/>(skipped if binary missing)"]
+    Syntax --> Policy["<b>2. Policy Check</b><br/>OPA policy engine<br/>+ built-in rules"]
+    Policy --> Compliance["<b>3. Compliance Check</b><br/>CIS Basic / Advanced<br/>8 built-in rules"]
+    Compliance --> Semantic["<b>4. Semantic Diff</b><br/>Equivalence checking<br/>(requires IR file)"]
+    Semantic --> Confidence["<b>5. Confidence Scoring</b><br/>Per-resource + stack-level<br/>(requires IR file)"]
+    Confidence --> Cost["<b>6. Cost Estimation</b><br/>Delta analysis<br/>(requires IR file)"]
 
     Syntax -->|"fail"| Report["Validation Report"]
-    HCL -->|"skip/fail"| Report
     Policy -->|"findings"| Report
     Compliance -->|"findings"| Report
     Semantic -->|"findings"| Report
@@ -430,7 +441,6 @@ flowchart TD
     Cost -->|"report"| Report
 
     style Syntax fill:#e8f5e9
-    style HCL fill:#e8f5e9
     style Policy fill:#fff3e0
     style Compliance fill:#fff3e0
     style Semantic fill:#e1f5fe
@@ -442,13 +452,12 @@ flowchart TD
 
 | # | Check | Input Required | Key Module | Output |
 |---|-------|----------------|-----------|--------|
-| 1 | **Syntax** | `.tf` files | HCL parser | Parse errors |
-| 2 | **HCL Validation** | `terraform` binary | `terraform validate` | Validation diagnostics |
-| 3 | **Policy** | Translated resources | `evaluatePolicies`, `evaluateOpa` | `PolicyReport` with pass/fail per rule |
-| 4 | **Compliance** | Translated resources | `checkCompliance` with CIS profiles | `ComplianceReport` (encryption, network, IAM, logging) |
-| 5 | **Semantic Diff** | IR file | `checkEquivalence` (presence, attributes, intents, references) | `EquivalenceReport` per resource |
-| 6 | **Confidence** | IR file + upstream results | `scoreConfidence` | `ConfidenceReport` with per-resource, family, and stack scores |
-| 7 | **Cost** | IR file | `estimateCostDelta` | `CostDeltaReport` with per-resource cost comparisons |
+| 1 | **Syntax** | `.tf` files, optional `terraform` binary | HCL parser + `terraform validate` | Parse errors, validation diagnostics |
+| 2 | **Policy** | Translated resources | `evaluatePolicies`, `evaluateOpa` | `PolicyReport` with pass/fail per rule |
+| 3 | **Compliance** | Translated resources | `checkCompliance` with CIS profiles | `ComplianceReport` (encryption, network, IAM, logging) |
+| 4 | **Semantic Diff** | IR file | `checkEquivalence` (presence, attributes, intents, references) | `EquivalenceReport` per resource |
+| 5 | **Confidence** | IR file + upstream results | `scoreConfidence` | `ConfidenceReport` with per-resource, family, and stack scores |
+| 6 | **Cost** | IR file | `estimateCostDelta` | `CostDeltaReport` with per-resource cost comparisons |
 
 ### Built-in Compliance Rules (CIS)
 

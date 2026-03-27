@@ -2,7 +2,7 @@
 
 > Translate AWS Terraform to Azure and GCP with full service equivalence registry, validation, and portable authoring.
 
-![Tests](https://img.shields.io/badge/tests-3130%2B%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-2500%2B%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Node](https://img.shields.io/badge/node-22%2B-green)
@@ -66,6 +66,12 @@ npx tla validate ./azure-output --source ./my-aws-terraform
 
 # Registry report
 npx tla registry-report --format table
+
+# Standalone assessment (readiness report)
+npx tla assess ./my-aws-terraform --target azure
+
+# Generate state migration commands
+npx tla migrate-state --state terraform.tfstate --translated-dir ./azure-output --target azure
 ```
 
 ---
@@ -80,7 +86,7 @@ npx tla registry-report --format table
 | **@tla/translator** | `packages/translator` | Translation engines + Azure/GCP codegen | `TranslationCompiler`, `AzureCodeGenerator`, `GcpCodeGenerator` |
 | **@tla/validator** | `packages/validator` | Validation, policy, compliance, cost estimation | `checkEquivalence`, `evaluatePolicies`, `checkCompliance`, `scoreConfidence` |
 | **@tla/mcp-server** | `packages/mcp-server` | MCP server (10 tools) for AI agent integration | `translate`, `equivalence-lookup`, `validate`, `migrate-state` |
-| **@tla/cli** | `packages/cli` | Command-line interface | `tla translate`, `tla validate-registry`, `tla registry-report` |
+| **@tla/cli** | `packages/cli` | Command-line interface | `tla translate`, `tla validate`, `tla assess`, `tla migrate-state`, `tla validate-registry`, `tla registry-report` |
 | **ide-extension** | `packages/ide-extension` | VS Code extension for inline hints | Completions, diagnostics, lint rules |
 | **terraform-provider** | `packages/terraform-provider` | Go Terraform provider for portable resources | `cloud_object_storage`, `cloud_container_registry`, `cloud_cache_redis` |
 | **integration-tests** | `packages/integration-tests` | End-to-end test suite | Azure E2E, GCP E2E, edge case fixtures |
@@ -89,30 +95,26 @@ npx tla registry-report --format table
 
 ## Translation Pipeline
 
-The compiler executes a 7-phase pipeline for each translation:
+The compiler executes a 5-phase pipeline for each translation:
 
 ```mermaid
 %%{init: {"theme": "neutral"}}%%
 flowchart TD
-    P1["Phase 1: Parse"]
-    P2["Phase 2: Resolve"]
-    P3["Phase 3: Plan"]
-    P4["Phase 4: Translate"]
-    P5["Phase 5: Emit"]
-    P6["Phase 6: Assemble"]
-    P7["Phase 7: Manifest"]
+    P1["Phase 1: Resolve"]
+    P2["Phase 2: Plan"]
+    P3["Phase 3: Emit"]
+    P4["Phase 4: Assemble"]
+    P5["Phase 5: Manifest"]
 
-    P1 -->|"HCL -> AST -> IR"| P2
-    P2 -->|"Flatten modules, resolve variables"| P3
-    P3 -->|"Topological sort, engine dispatch"| P4
-    P4 -->|"5 engine types process resources"| P5
-    P5 -->|"Expression translation, reference rewriting"| P6
-    P6 -->|"HCL file assembly (main, providers, variables, outputs, terraform)"| P7
-    P7 -->|"Confidence scoring, gap analysis, manifest generation"| P7
+    P1 -->|"Dependency graph, registry enrichment"| P2
+    P2 -->|"Topological sort, engine dispatch"| P3
+    P3 -->|"Per-resource translation via 5 engines"| P4
+    P4 -->|"HCL file generation (main, providers, variables, outputs, terraform)"| P5
+    P5 -->|"Confidence scoring, gap analysis, report generation"| P5
 
     style P1 fill:#e1f5fe
-    style P4 fill:#fff3e0
-    style P7 fill:#e8f5e9
+    style P3 fill:#fff3e0
+    style P5 fill:#e8f5e9
 ```
 
 ### Engine Types
@@ -125,6 +127,23 @@ flowchart TD
 | **Structural** | P2 | Topology reshaping with intent analysis | Security Groups, Lambda, ECS, SQS, SNS, CloudWatch |
 | **Advisory** | M1 | Human-guided migration stubs | DynamoDB, IAM, CloudFront, Route53 Health, ElastiCache Cluster |
 
+### Output Artifacts
+
+Each translation produces the following files in the output directory:
+
+| File | Description |
+|------|-------------|
+| `main.tf` | Translated resource definitions |
+| `providers.tf` | Target provider configuration |
+| `terraform.tf` | Terraform version and required providers |
+| `variables.tf` | Input variables (subscription_id/project_id, region, etc.) |
+| `outputs.tf` | Output values carried over from source |
+| `manifest.json` | Machine-readable translation manifest with per-resource confidence and findings |
+| `translation-report.md` | Human-readable translation summary |
+| `audit-log.jsonl` | Append-only audit trail for compliance |
+| `confidence-report.json` | Per-resource confidence scores with escalation flags |
+| `migration-pack.md` | Remediation tasks for blocked/advisory resources (generated only when applicable) |
+
 ---
 
 ## MCP Server Tools
@@ -134,15 +153,15 @@ The MCP server exposes 10 tools for AI agent integration:
 | Tool | Description |
 |------|-------------|
 | `translate` | Translate an AWS Terraform directory to Azure or GCP |
-| `equivalence-lookup` | Look up the Azure/GCP equivalent for an AWS resource type |
-| `validate` | Run the full validation suite on a translation |
-| `migrate-state` | Generate state migration commands for an existing deployment |
-| `list-services` | List all mapped AWS services and their translation bands |
-| `assess` | Run assessment-only mode (no file output) |
-| `explain-gap` | Explain a specific behavioral gap finding |
-| `cost-estimate` | Estimate cost differences between source and target |
-| `compliance-check` | Run CIS compliance checks against translated output |
-| `registry-report` | Generate a registry coverage report |
+| `equivalence-lookup` | Look up Azure/GCP equivalents for AWS resource types |
+| `validate` | Run validation checks (syntax, policy, compliance, semantic, confidence, cost) |
+| `migrate-state` | Generate state migration commands for existing deployments |
+| `assess` | Run assessment-only mode with readiness report |
+| `registry-search` | Search the registry with filters on family, band, confidence |
+| `registry-stats` | Return registry completeness metrics |
+| `explain-mapping` | Get detailed explanation of how an AWS type maps to target |
+| `list-gaps` | List behavioral gaps for AWS services |
+| `confidence-check` | Return confidence score and factors for a specific resource |
 
 ### MCP Configuration
 
@@ -150,8 +169,8 @@ The MCP server exposes 10 tools for AI agent integration:
 {
   "mcpServers": {
     "tla": {
-      "command": "npx",
-      "args": ["@tla/mcp-server", "start"],
+      "command": "node",
+      "args": ["packages/mcp-server/dist/server.js"],
       "env": {
         "TLA_REGISTRY_DIR": "./packages/registry/data"
       }
@@ -269,12 +288,11 @@ These resource types are recognized and classified but do not require dedicated 
 
 ## Validation Suite
 
-The platform includes 7 validation checks that run against every translation:
+The platform includes 6 validation check types that run against every translation:
 
 | Check | Description |
 |-------|-------------|
-| **Syntax Validation** | Verifies generated HCL is syntactically valid |
-| **HCL Validation** | Runs `terraform validate` against generated output |
+| **Syntax Validation** | Verifies generated HCL is syntactically valid (includes optional `terraform validate`) |
 | **Policy Evaluation** | Evaluates custom policy rules (e.g., no public endpoints) |
 | **Compliance Checking** | CIS benchmark compliance (Basic: 5 rules, Advanced: 8 rules) |
 | **Semantic Diff** | Compares source and target resource graphs for equivalence |
@@ -290,7 +308,7 @@ The platform includes 7 validation checks that run against every translation:
 
 ## Test Suite
 
-- **3,130+ tests** across 8 packages
+- **2,500+ tests** across 104 test files
 - **TypeScript** tests via Vitest, **Go** tests via `go test`
 - **End-to-end tests** for both Azure and GCP translation targets
 - **12 edge case fixtures** derived from PRD Section 13
@@ -336,8 +354,8 @@ pnpm test -- --coverage
 {
   "mcpServers": {
     "tla": {
-      "command": "npx",
-      "args": ["@tla/mcp-server", "start"],
+      "command": "node",
+      "args": ["packages/mcp-server/dist/server.js"],
       "env": {
         "TLA_REGISTRY_DIR": "./packages/registry/data",
         "TLA_LOG_LEVEL": "info",
@@ -424,7 +442,7 @@ Translation_Platform/
 
 ### Architecture Reference
 
-This project follows **PRD-CTP-002 v3.0**. All translation engines implement the `MappingEngine` plugin interface. The `TranslationCompiler` orchestrates the 7-phase pipeline. Codegen is provider-specific (`AzureCodeGenerator`, `GcpCodeGenerator`) and produces idiomatic HCL via the shared `hcl-writer`.
+This project follows **PRD-CTP-002 v3.0**. All translation engines implement the `MappingEngine` plugin interface. The `TranslationCompiler` orchestrates the 5-phase pipeline. Codegen is provider-specific (`AzureCodeGenerator`, `GcpCodeGenerator`) and produces idiomatic HCL via the shared `hcl-writer`.
 
 ---
 

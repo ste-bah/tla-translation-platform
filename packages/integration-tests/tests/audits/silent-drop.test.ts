@@ -1,15 +1,16 @@
 /**
- * TASK-NFR-001: Performance Benchmarks
+ * TASK-NFR-003: Silent-Drop Audit
  *
- * Measures translation pipeline throughput against synthetic fixtures.
- * Excluded from the default test run — use `npm run test:bench` to execute.
+ * PRD requires zero silent drops — every source resource must have an
+ * explicit status entry in the translation manifest.
  *
- * Thresholds (from PRD):
- *   Full translation (parse→IR→translate Azure): < 600 000 ms (10 min)
- *   Assessment only (parse→IR→registry lookup):  < 180 000 ms ( 3 min)
+ * This test generates a 20-resource fixture, runs the full pipeline
+ * (parse -> graph -> IR -> compile), and asserts:
+ *   1. manifest.entries.length >= ir.resources.length
+ *   2. Every manifest entry has a valid status
+ *   3. No IR resource is missing from the manifest (zero orphans)
  *
- * Uses a mock registry (fake entries for 10 resource types) to avoid
- * depending on actual YAML registry files.
+ * Uses a mock registry (same pattern as performance benchmarks).
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -19,22 +20,31 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { parseHclDirectory, DependencyGraph, IrEmitter, resolveRegistryKey } from '@tla/ingestion';
 import { TranslationCompiler } from '@tla/translator';
-import { generateFixture, getFixtureResourceTypes } from './generate-fixture.js';
+import { generateFixture, getFixtureResourceTypes } from '../benchmarks/generate-fixture.js';
 import type { RegistryEntry } from '@tla/shared';
-import type { CanonicalIR, CompilerOptions } from '@tla/shared';
+import type { CanonicalIR, CompilerOptions, TranslationResult } from '@tla/shared';
 import type { RegistryApi as RegistryApiType } from '@tla/registry';
 
 // ---------------------------------------------------------------------------
-// Mock registry — fake entries for the 10 fixture resource types
+// Valid manifest statuses per PRD
 // ---------------------------------------------------------------------------
 
-/**
- * Builds a minimal mock RegistryEntry for a given AWS service key.
- */
+const VALID_STATUSES = new Set([
+  'translated',
+  'expanded',
+  'partial',
+  'blocked',
+  'advisory',
+]);
+
+// ---------------------------------------------------------------------------
+// Mock registry (same pattern as performance benchmarks)
+// ---------------------------------------------------------------------------
+
 function makeMockEntry(awsService: string, index: number): RegistryEntry {
   const n = String(index).padStart(3, '0');
   return {
-    registry_entry_id: `SER-BENCH-MOCK-${n}`,
+    registry_entry_id: `SER-AUDIT-MOCK-${n}`,
     aws_service: awsService,
     aws_family: 'compute',
     azure_targets: [`azurerm_mock_${awsService}`],
@@ -48,7 +58,7 @@ function makeMockEntry(awsService: string, index: number): RegistryEntry {
     manual_review_required: false,
     review_domains: [],
     test_status: 'unit_tested',
-    owner: 'benchmark',
+    owner: 'audit',
     registry_version: '2025.03.01',
     last_updated: '2025-03-01T00:00:00Z',
     related_requirements: [],
@@ -56,20 +66,14 @@ function makeMockEntry(awsService: string, index: number): RegistryEntry {
   };
 }
 
-/**
- * Creates a mock RegistryApi that responds to lookup/lookupMany for the
- * 10 resource types used by the fixture generator.
- */
 function buildMockRegistry(): RegistryApiType {
   const entryMap = new Map<string, RegistryEntry>();
 
-  // Build entries keyed by registry short key (e.g. "s3", "ec2")
   const fixtureTypes = getFixtureResourceTypes();
   const seenKeys = new Set<string>();
 
   fixtureTypes.forEach((tfType, idx) => {
     const registryKey = resolveRegistryKey(tfType);
-    // Use the resolved key if available, otherwise the raw TF type
     const key = registryKey ?? tfType;
     if (!seenKeys.has(key)) {
       seenKeys.add(key);
@@ -79,11 +83,8 @@ function buildMockRegistry(): RegistryApiType {
 
   return {
     lookup: (awsResourceType: string): RegistryEntry | undefined => {
-      // Try direct lookup first
       const direct = entryMap.get(awsResourceType);
       if (direct) return direct;
-
-      // Try resolving via the registry key map (TF type → short key)
       const shortKey = resolveRegistryKey(awsResourceType);
       if (shortKey !== undefined) {
         return entryMap.get(shortKey);
@@ -108,7 +109,7 @@ function buildMockRegistry(): RegistryApiType {
 // ---------------------------------------------------------------------------
 
 function createTempDir(): string {
-  const dir = join(tmpdir(), `tla-bench-${randomUUID()}`);
+  const dir = join(tmpdir(), `tla-audit-${randomUUID()}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -122,19 +123,20 @@ function cleanupTempDir(dir: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Suite-level setup — generate fixture, parse, build IR once
+// Suite-level state
 // ---------------------------------------------------------------------------
 
 let registry: RegistryApiType;
 let ir: CanonicalIR;
+let result: TranslationResult;
 let fixtureDir: string;
 
 beforeAll(async () => {
   registry = buildMockRegistry();
 
-  // Generate 500-resource fixture to a temp directory
+  // Generate 20-resource fixture
   fixtureDir = createTempDir();
-  const hcl = generateFixture(500);
+  const hcl = generateFixture(20);
   writeFileSync(join(fixtureDir, 'main.tf'), hcl, 'utf8');
 
   // Parse
@@ -155,9 +157,18 @@ beforeAll(async () => {
   ir = emitResult.ir;
 
   expect(ir.resources.length, 'IR must contain resources').toBeGreaterThan(0);
-}, 120_000 /* 2 min setup timeout */);
 
-// Cleanup temp dir after all tests
+  // Compile (full translation pipeline)
+  const options: CompilerOptions = {
+    targetProvider: 'azure',
+    registryVersion: '2025.03.01',
+    emitComments: true,
+    sortKeys: true,
+  };
+  const compiler = new TranslationCompiler(registry);
+  result = compiler.translate(ir, options);
+}, 60_000);
+
 afterAll(() => {
   if (fixtureDir) cleanupTempDir(fixtureDir);
 });
@@ -166,53 +177,39 @@ afterAll(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Performance benchmarks', () => {
-  it(
-    'translates 500 resources in under 10 minutes',
-    () => {
-      const options: CompilerOptions = {
-        targetProvider: 'azure',
-        registryVersion: '2025.03.01',
-        emitComments: true,
-        sortKeys: true,
-      };
-      const compiler = new TranslationCompiler(registry);
+describe('Silent-drop audit (TASK-NFR-003)', () => {
+  it('manifest has at least as many entries as IR resources', () => {
+    expect(
+      result.manifest.entries.length,
+      `Manifest has ${result.manifest.entries.length} entries but IR has ${ir.resources.length} resources`,
+    ).toBeGreaterThanOrEqual(ir.resources.length);
+  });
 
-      const t0 = performance.now();
-      const result = compiler.translate(ir, options);
-      const elapsed = performance.now() - t0;
+  it('every manifest entry has a valid status', () => {
+    for (const entry of result.manifest.entries) {
+      expect(
+        VALID_STATUSES.has(entry.status),
+        `Manifest entry "${entry.sourceId}" has invalid status "${entry.status}". ` +
+          `Expected one of: ${[...VALID_STATUSES].join(', ')}`,
+      ).toBe(true);
+    }
+  });
 
-      console.log(
-        `Full translation: ${ir.resources.length} resources in ${elapsed.toFixed(0)} ms` +
-          ` (${(elapsed / ir.resources.length).toFixed(2)} ms/resource)`,
-      );
+  it('no IR resource is missing from the manifest (zero orphans)', () => {
+    const manifestSourceIds = new Set(
+      result.manifest.entries.map((e) => e.sourceId),
+    );
 
-      expect(result.resources.length, 'Translation produced no output resources').toBeGreaterThan(0);
-      expect(elapsed, `Translation exceeded 10-minute threshold (${elapsed.toFixed(0)} ms)`).toBeLessThan(600_000);
-    },
-    620_000 /* test timeout slightly above threshold */,
-  );
-
-  it(
-    'assesses 500 resources in under 3 minutes',
-    () => {
-      const t0 = performance.now();
-
-      let lookedUp = 0;
-      for (const resource of ir.resources) {
-        const entry = registry.lookup(resource.sourceType);
-        if (entry !== undefined) lookedUp++;
+    const orphans: string[] = [];
+    for (const resource of ir.resources) {
+      if (!manifestSourceIds.has(resource.id)) {
+        orphans.push(`${resource.id} (${resource.sourceType})`);
       }
+    }
 
-      const elapsed = performance.now() - t0;
-
-      console.log(
-        `Assessment: ${ir.resources.length} registry lookups in ${elapsed.toFixed(0)} ms` +
-          ` (${lookedUp} mapped, ${ir.resources.length - lookedUp} unmapped)`,
-      );
-
-      expect(elapsed, `Assessment exceeded 3-minute threshold (${elapsed.toFixed(0)} ms)`).toBeLessThan(180_000);
-    },
-    200_000 /* test timeout slightly above threshold */,
-  );
+    expect(
+      orphans,
+      `Found ${orphans.length} IR resource(s) with no manifest entry (silent drops):\n  ${orphans.join('\n  ')}`,
+    ).toHaveLength(0);
+  });
 });

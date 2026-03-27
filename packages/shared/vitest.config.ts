@@ -8,6 +8,10 @@ export default defineConfig({
     },
   },
   test: {
+    pool: 'forks',
+    poolOptions: {
+      forks: { maxForks: 2 },
+    },
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
