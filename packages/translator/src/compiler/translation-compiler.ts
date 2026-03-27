@@ -15,6 +15,7 @@ import {
 } from '@tla/shared';
 import type { RegistryApi } from '@tla/registry';
 import { getEngine } from '../engines/index.js';
+import { validateTopology } from '../engines/structural/topology-validator.js';
 import type { TranslationContext } from '../engines/mapping-engine.js';
 import { buildTranslationPlan } from './translation-planner.js';
 import { assembleFiles } from './file-assembler.js';
@@ -134,6 +135,10 @@ export class TranslationCompiler {
         });
       }
     }
+
+    // Phase 2.5: Post-translation topology validation
+    const topologyResult = validateTopology(ir, allResources);
+    allFindings.push(...topologyResult.findings);
 
     // Phase 3: Assemble files
     const fileMap = assembleFiles({
@@ -265,13 +270,31 @@ export class TranslationCompiler {
     const confidenceOverall =
       ir.resources.length > 0 ? totalConfidence / ir.resources.length : 0;
 
+    // Count generic-fallback translations across all entries
+    const allFindings = [...findings];
+    let fallbackCount = 0;
+    for (const entry of entries) {
+      const hasFallback = entry.targetResources.some(
+        (r) => r.traceability.translationPath === 'generic-fallback',
+      );
+      if (hasFallback) fallbackCount++;
+    }
+    if (fallbackCount > 0) {
+      allFindings.push({
+        resourceId: '__manifest__',
+        severity: 'info',
+        code: 'TRANSLATION_FALLBACK_SUMMARY',
+        message: `${fallbackCount} of ${entries.length} resources translated via generic fallback — review recommended`,
+      });
+    }
+
     return {
       version: '1.0.0',
       registryVersion: options.registryVersion,
       target: options.targetProvider,
       counts,
       entries,
-      findings: [...findings],
+      findings: allFindings,
       confidenceOverall,
     };
   }

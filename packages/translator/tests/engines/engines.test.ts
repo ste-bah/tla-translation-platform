@@ -264,7 +264,8 @@ describe('compoundEngine', () => {
     const result = engine.translate(ctx);
 
     expect(result.translated).toHaveLength(3);
-    expect(result.findings).toHaveLength(0);
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]!.code).toBe('GENERIC_COMPOUND_FALLBACK');
   });
 
   it('should return N resources (one per gcp target)', () => {

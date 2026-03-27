@@ -18,6 +18,18 @@ import type {
 // Public types
 // ---------------------------------------------------------------------------
 
+/** Sub-component confidence breakdown. */
+export interface ConfidenceBreakdown {
+  /** Base confidence from registry entry (0-1). */
+  mapping: number;
+  /** Topology cohesion factor — 1.0 if no topology issues, reduced by topology findings. */
+  topology: number;
+  /** Policy compliance factor — 1.0 if clean, reduced by blocker/warning findings. */
+  policy: number;
+  /** Translation path factor — 1.0 specialized, 0.6 generic-fallback, 0.3 advisory. */
+  translationPath: number;
+}
+
 /** Per-resource confidence entry in the report. */
 export interface ResourceConfidence {
   sourceId: string;
@@ -28,6 +40,8 @@ export interface ResourceConfidence {
   escalationRequired: boolean;
   /** Human-readable factors that reduced confidence. */
   factors: string[];
+  /** Sub-component confidence breakdown. */
+  breakdown: ConfidenceBreakdown;
 }
 
 /** The full confidence report structure. */
@@ -48,6 +62,13 @@ export interface ConfidenceReport {
     medium: number;
     low: number;
   };
+  /** Aggregate confidence breakdown across all resources. */
+  overallBreakdown?: {
+    avgMapping: number;
+    avgTopology: number;
+    avgPolicy: number;
+    avgTranslationPath: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +83,8 @@ export function buildConfidenceReport(
 ): ConfidenceReport {
   const resources: ResourceConfidence[] = result.manifest.entries.map(
     (entry) => {
-      const factors = deriveFactors(entry, result.findings);
+      const breakdown = computeBreakdown(entry, result.findings);
+      const factors = deriveFactors(entry, result.findings, breakdown);
       const escalationRequired =
         entry.confidence < 0.5 || entry.status === 'blocked';
       return {
@@ -72,6 +94,7 @@ export function buildConfidenceReport(
         confidence: entry.confidence,
         escalationRequired,
         factors,
+        breakdown,
       };
     },
   );
@@ -92,6 +115,9 @@ export function buildConfidenceReport(
     statusBreakdown[r.status] = (statusBreakdown[r.status] ?? 0) + 1;
   }
 
+  // Overall breakdown (average across all resources)
+  const overallBreakdown = computeOverallBreakdown(resources);
+
   return {
     generatedAt: new Date().toISOString(),
     target: result.target,
@@ -101,6 +127,7 @@ export function buildConfidenceReport(
     resources,
     statusBreakdown,
     confidenceBands: { high, medium, low },
+    overallBreakdown,
   };
 }
 
@@ -109,11 +136,76 @@ export function buildConfidenceReport(
 // ---------------------------------------------------------------------------
 
 /**
+ * Computes the sub-component confidence breakdown for a manifest entry.
+ */
+function computeBreakdown(
+  entry: ManifestEntry,
+  allFindings: TranslationFinding[],
+): ConfidenceBreakdown {
+  // Mapping: base confidence from the entry (already from registry).
+  const mapping = entry.confidence;
+
+  // Topology: reduced by TOPOLOGY_ findings affecting this resource.
+  const topologyFindings = allFindings.filter(
+    (f) => f.resourceId === entry.sourceId && f.code.startsWith('TOPOLOGY_'),
+  );
+  const topology = topologyFindings.length === 0
+    ? 1.0
+    : Math.max(0.5, 1.0 - topologyFindings.length * 0.15);
+
+  // Policy: reduced by blocker and warning findings on the entry.
+  const blockerCount = entry.findings.filter(
+    (f) => f.severity === 'blocker',
+  ).length;
+  const warningCount = entry.findings.filter(
+    (f) => f.severity === 'warning',
+  ).length;
+  const policy = Math.max(0, 1.0 - blockerCount * 0.5 - warningCount * 0.1);
+
+  // Translation path: derived from the first target resource's traceability.
+  const pathType =
+    entry.targetResources[0]?.traceability?.translationPath;
+  let translationPath = 1.0;
+  if (pathType === 'generic-fallback') translationPath = 0.6;
+  else if (pathType === 'advisory') translationPath = 0.3;
+
+  return { mapping, topology, policy, translationPath };
+}
+
+/**
+ * Averages sub-component breakdowns across all resources.
+ * Returns undefined when there are no resources.
+ */
+function computeOverallBreakdown(
+  resources: ResourceConfidence[],
+): ConfidenceReport['overallBreakdown'] {
+  if (resources.length === 0) return undefined;
+  const n = resources.length;
+  let sumMapping = 0;
+  let sumTopology = 0;
+  let sumPolicy = 0;
+  let sumPath = 0;
+  for (const r of resources) {
+    sumMapping += r.breakdown.mapping;
+    sumTopology += r.breakdown.topology;
+    sumPolicy += r.breakdown.policy;
+    sumPath += r.breakdown.translationPath;
+  }
+  return {
+    avgMapping: sumMapping / n,
+    avgTopology: sumTopology / n,
+    avgPolicy: sumPolicy / n,
+    avgTranslationPath: sumPath / n,
+  };
+}
+
+/**
  * Derives human-readable factor strings from an entry's findings.
  */
 function deriveFactors(
   entry: ManifestEntry,
   allFindings: TranslationFinding[],
+  breakdown: ConfidenceBreakdown,
 ): string[] {
   const factors: string[] = [];
 
@@ -139,6 +231,16 @@ function deriveFactors(
   }
   if (entry.status === 'partial') {
     factors.push('Partial translation — manual review required');
+  }
+
+  // Breakdown-derived factors
+  if (breakdown.translationPath < 1.0) {
+    factors.push(
+      `Translation via generic fallback (${breakdown.translationPath}x)`,
+    );
+  }
+  if (breakdown.topology < 1.0) {
+    factors.push(`Topology issues detected (${breakdown.topology}x)`);
   }
 
   return factors;

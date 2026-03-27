@@ -36,4 +36,8 @@ export interface AuditEntry {
   };
   /** Duration in milliseconds */
   durationMs: number;
+  /** SHA-256 hashes of all emitted artifact files */
+  artifactHashes: Record<string, string>;
+  /** Tool version */
+  toolVersion: string;
 }

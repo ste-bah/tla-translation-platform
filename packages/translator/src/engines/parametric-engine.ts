@@ -50,6 +50,18 @@ const DISPATCH: ReadonlyMap<string, (ctx: TranslationContext) => EngineResult> =
 /**
  * Generic parametric fallback: copies attributes verbatim and emits a finding.
  */
+/**
+ * Critical resource type prefixes that warrant a warning (not info) when
+ * translated via generic fallback.
+ */
+const CRITICAL_FALLBACK_PREFIXES = [
+  'aws_instance',
+  'aws_db_',
+  'aws_rds',
+  'aws_security_group',
+  'aws_iam',
+] as const;
+
 function genericParametricFallback(ctx: TranslationContext): EngineResult {
   const { resource, registryEntry, targetProvider } = ctx;
   const targets =
@@ -78,6 +90,11 @@ function genericParametricFallback(ctx: TranslationContext): EngineResult {
     sortedAttrs[key] = resource.attributes[key];
   }
 
+  // Raise severity for critical resource families
+  const isCritical = CRITICAL_FALLBACK_PREFIXES.some((prefix) =>
+    resource.sourceType.startsWith(prefix),
+  );
+
   return {
     translated: [
       {
@@ -85,13 +102,13 @@ function genericParametricFallback(ctx: TranslationContext): EngineResult {
         targetName: resource.sourceName,
         attributes: sortedAttrs,
         sourceId: resource.id,
-        traceability: makeTraceability(ctx, 'parametric/generic', 'parametric'),
+        traceability: { ...makeTraceability(ctx, 'parametric/generic', 'parametric'), translationPath: 'generic-fallback' as const },
       },
     ],
     findings: [
       createFinding(
         resource.id,
-        'info',
+        isCritical ? 'warning' : 'info',
         'GENERIC_PARAMETRIC_FALLBACK',
         `No specialized parametric mapper for '${resource.sourceType}'; attributes copied verbatim`,
       ),

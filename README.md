@@ -182,6 +182,29 @@ The MCP server exposes 10 tools for AI agent integration:
 
 ## Supported Resources
 
+### Translation Depth Matrix
+
+Each AWS resource type falls into one of four translation depth tiers:
+
+| Tier | Meaning | Confidence | Handler |
+|------|---------|------------|---------|
+| **Specialized** | Dedicated per-resource translation with attribute-level mapping | 0.70-0.95 | Named handler in dispatch table |
+| **Generic Fallback** | Attribute copy-through using first registry target type | 0.30-0.60 | Engine generic fallback path |
+| **Advisory** | No automated translation — manual migration guidance only | 0.00-0.30 | Advisory engine with pattern detection |
+| **Blocked** | Translation refused due to security risk (blocker findings) | N/A | Blocker gate (e.g., SG rule broadening) |
+
+**Current specialized handlers (verified from dispatch tables):**
+
+| Engine | Specialized Resources |
+|--------|----------------------|
+| Direct | S3, ECR, ElastiCache Redis, Route53, VPC Peering |
+| Parametric | NAT GW, KMS, Secrets Manager, EKS, Direct Connect, VPN |
+| Compound | EC2, ASG, ALB/NLB, RDS, API Gateway |
+| Structural | Security Groups, Lambda, ECS, SQS, SNS, CloudWatch, VPC, Subnet, Route Table, IGW, Flow Log, Transit GW, PrivateLink, WAF, Step Functions |
+| Advisory | DynamoDB, IAM, CloudFront, Route53 Health, ElastiCache Cluster |
+
+Resources NOT in the dispatch tables above will use generic fallback translation when their registry `mapping_type` routes them to an engine without a specialized handler. The `registry-stats` MCP tool includes a `handlerCoverage` section showing the breakdown.
+
 ### Complete AWS to Azure/GCP Mapping Table
 
 Every AWS resource below has a dedicated translation engine. The **Band** indicates translation confidence: P1 (highest, direct mapping) through M1 (advisory only, manual migration required).

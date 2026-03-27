@@ -354,7 +354,7 @@ describe('registerTranslate — file input + azure target', () => {
 
     expect(exitCode).toBeUndefined();
     expect(stdout).toContain('Translation Complete');
-    expect(mockWriteFile).toHaveBeenCalledTimes(8);
+    expect(mockWriteFile).toHaveBeenCalledTimes(9);
     expect(mockMkdir).toHaveBeenCalledWith(
       expect.stringContaining('test-out'),
       { recursive: true },
@@ -385,7 +385,7 @@ describe('registerTranslate — directory input + gcp target', () => {
     expect(stdout).toContain('Translation Complete');
     expect(mockParseHclDirectory).toHaveBeenCalled();
     expect(mockParseHclFile).not.toHaveBeenCalled();
-    expect(mockWriteFile).toHaveBeenCalledTimes(8);
+    expect(mockWriteFile).toHaveBeenCalledTimes(9);
   });
 });
 
@@ -850,7 +850,7 @@ describe('registerTranslate — pipeline wiring', () => {
       '--output', '/tmp/out',
     ]);
 
-    expect(mockWriteFile).toHaveBeenCalledTimes(8);
+    expect(mockWriteFile).toHaveBeenCalledTimes(9);
     for (const call of mockWriteFile.mock.calls) {
       expect(call[2]).toBe('utf-8');
     }

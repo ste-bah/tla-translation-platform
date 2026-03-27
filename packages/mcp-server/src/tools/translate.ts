@@ -13,6 +13,7 @@
  * Never throws — all errors are caught and returned as { success: false, error }.
  */
 
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -180,6 +181,10 @@ export async function handleTranslate(
       writtenFiles.push(fileName);
     }
 
+    // 10a. Write canonical-ir.json for downstream validation
+    await writeFile(join(outputDir, 'canonical-ir.json'), JSON.stringify(ir, null, 2), 'utf-8');
+    writtenFiles.push('canonical-ir.json');
+
     // 10b. Write manifest.json
     const manifestJson = JSON.stringify(translationResult.manifest, null, 2);
     await writeFile(join(outputDir, 'manifest.json'), manifestJson, 'utf-8');
@@ -190,18 +195,26 @@ export async function handleTranslate(
     await writeFile(join(outputDir, 'translation-report.md'), report, 'utf-8');
     writtenFiles.push('translation-report.md');
 
-    // 10d. Write audit trail entry (append-only JSONL)
+    // 10d. Build artifact hashes for audit integrity
+    const artifactHashes: Record<string, string> = {};
+    artifactHashes['canonical-ir.json'] = createHash('sha256').update(JSON.stringify(ir, null, 2)).digest('hex');
+    for (const [fileName, content] of Object.entries(translationResult.files)) {
+      artifactHashes[fileName] = createHash('sha256').update(content).digest('hex');
+    }
+    artifactHashes['manifest.json'] = createHash('sha256').update(manifestJson).digest('hex');
+
+    // 10e. Write audit trail entry (append-only JSONL)
     const durationMs = Date.now() - startTime;
-    const auditEntry = buildAuditEntry(translationResult, args.source, args.target, durationMs, manifestJson);
+    const auditEntry = buildAuditEntry(translationResult, args.source, args.target, durationMs, manifestJson, artifactHashes);
     await appendAuditEntry(outputDir, auditEntry);
     writtenFiles.push('audit-log.jsonl');
 
-    // 10e. Write confidence-report.json
+    // 10f. Write confidence-report.json
     const confidenceReport = buildConfidenceReport(translationResult);
     await writeFile(join(outputDir, 'confidence-report.json'), JSON.stringify(confidenceReport, null, 2), 'utf-8');
     writtenFiles.push('confidence-report.json');
 
-    // 10f. Write migration-pack.md (only when blocked/advisory resources exist)
+    // 10g. Write migration-pack.md (only when blocked/advisory resources exist)
     const remediationPack = generateRemediationPack(translationResult.manifest, ir);
     const migrationPackMd = buildMigrationPack(remediationPack);
     if (migrationPackMd !== null) {

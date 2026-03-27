@@ -12,11 +12,13 @@ import type { AuditEntry } from './audit-types.js';
 /**
  * Builds an AuditEntry from a completed translation run.
  *
- * @param result       - The compiler output
- * @param source       - Source path or description
- * @param target       - Target cloud provider
- * @param durationMs   - Wall-clock duration of the translation
- * @param manifestJson - The serialized manifest.json (used for hash)
+ * @param result         - The compiler output
+ * @param source         - Source path or description
+ * @param target         - Target cloud provider
+ * @param durationMs     - Wall-clock duration of the translation
+ * @param manifestJson   - The serialized manifest.json (used for hash)
+ * @param artifactHashes - Map of filename to SHA-256 hash for integrity checks
+ * @param toolVersion    - Version of the TLA tool (default '0.1.0')
  */
 export function buildAuditEntry(
   result: TranslationResult,
@@ -24,6 +26,8 @@ export function buildAuditEntry(
   target: 'azure' | 'gcp',
   durationMs: number,
   manifestJson: string,
+  artifactHashes: Record<string, string> = {},
+  toolVersion: string = '0.1.0',
 ): AuditEntry {
   const hash = createHash('sha256').update(manifestJson, 'utf-8').digest('hex');
 
@@ -53,6 +57,8 @@ export function buildAuditEntry(
     manifestHash: hash,
     findingCounts,
     durationMs,
+    artifactHashes,
+    toolVersion,
   };
 }
 

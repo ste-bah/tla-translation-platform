@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { compoundEngine } from '../../src/engines/compound-engine.js';
-import { translateEc2 } from '../../src/engines/compound/ec2-mapping.js';
+import { translateEc2, detectOsFamily } from '../../src/engines/compound/ec2-mapping.js';
 import { translateAsg } from '../../src/engines/compound/asg-mapping.js';
 import { translateLb } from '../../src/engines/compound/lb-mapping.js';
 import { translateRds } from '../../src/engines/compound/rds-mapping.js';
@@ -683,6 +683,167 @@ describe('translateEc2', () => {
       const result = translateEc2(ctx);
       const disk = result.translated.find((r) => r.targetType === 'google_compute_disk');
       expect((disk!.attributes as Record<string, unknown>)['size']).toBe(30);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // OS family detection & hardening
+  // -----------------------------------------------------------------------
+  describe('OS family detection & hardening', () => {
+    it('detects Linux OS family from AMI string containing "ubuntu"', () => {
+      expect(detectOsFamily({ ami: 'ami-ubuntu-22.04-hvm' })).toBe('linux');
+    });
+
+    it('detects Windows OS family from AMI string containing "windows"', () => {
+      expect(detectOsFamily({ ami: 'ami-windows-server-2022' })).toBe('windows');
+    });
+
+    it('emits IMAGE_RESOLUTION_REQUIRED finding with source AMI value', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({ attributes: { ami: 'ami-0123456789abcdef0' } }),
+      });
+      const result = translateEc2(ctx);
+      const finding = result.findings.find((f) => f.code === 'IMAGE_RESOLUTION_REQUIRED');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('ami-0123456789abcdef0');
+    });
+
+    it('uses azurerm_windows_virtual_machine for Windows instances', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({ attributes: { ami: 'ami-windows-2022-base' } }),
+      });
+      const result = translateEc2(ctx);
+      const vm = result.translated.find((r) =>
+        r.targetType === 'azurerm_windows_virtual_machine',
+      );
+      expect(vm).toBeDefined();
+    });
+
+    it('uses windows-cloud image for GCP Windows instances', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'gcp',
+        resource: makeIrResource({ attributes: { ami: 'ami-windows-2022-base' } }),
+      });
+      const result = translateEc2(ctx);
+      const instance = result.translated.find((r) => r.targetType === 'google_compute_instance');
+      const bootDisk = (instance!.attributes as Record<string, unknown>)['boot_disk'] as Record<string, unknown>;
+      const initParams = bootDisk['initialize_params'] as Record<string, unknown>;
+      expect(initParams['image']).toBe('windows-cloud/windows-2022');
+    });
+
+    it('emits EC2_PUBLIC_IP_INTENT warning when associate_public_ip_address is true', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({ attributes: { associate_public_ip_address: true, vpc_security_group_ids: ['sg-1'] } }),
+      });
+      const result = translateEc2(ctx);
+      const finding = result.findings.find((f) => f.code === 'EC2_PUBLIC_IP_INTENT');
+      expect(finding).toBeDefined();
+      expect(finding!.severity).toBe('warning');
+    });
+
+    it('adds access_config to GCP network_interface for public IP', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'gcp',
+        resource: makeIrResource({ attributes: { associate_public_ip_address: true, vpc_security_group_ids: ['sg-1'] } }),
+      });
+      const result = translateEc2(ctx);
+      const instance = result.translated.find((r) => r.targetType === 'google_compute_instance');
+      const netIf = (instance!.attributes as Record<string, unknown>)['network_interface'] as Record<string, unknown>;
+      expect(netIf['access_config']).toEqual({});
+    });
+
+    it('emits EC2_ADDITIONAL_VOLUMES finding for extra EBS devices', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({
+          attributes: {
+            ebs_block_device: [
+              { volume_size: 100, volume_type: 'gp3' },
+              { volume_size: 50 },
+            ],
+          },
+        }),
+      });
+      const result = translateEc2(ctx);
+      const finding = result.findings.find((f) => f.code === 'EC2_ADDITIONAL_VOLUMES');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('2');
+    });
+
+    it('generates additional managed disks for EBS block devices on Azure', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({
+          attributes: {
+            ebs_block_device: [{ volume_size: 100, volume_type: 'gp3' }],
+          },
+        }),
+      });
+      const result = translateEc2(ctx);
+      const dataDisks = result.translated.filter(
+        (r) => r.targetType === 'azurerm_managed_disk' && r.targetName.includes('data_disk'),
+      );
+      expect(dataDisks).toHaveLength(1);
+      expect((dataDisks[0]!.attributes as Record<string, unknown>)['disk_size_gb']).toBe(100);
+      expect((dataDisks[0]!.attributes as Record<string, unknown>)['storage_account_type']).toBe('Premium_LRS');
+    });
+
+    it('uses variable reference for SSH key instead of file()', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({
+          sourceName: 'webserver',
+          attributes: { key_name: 'my-key' },
+        }),
+      });
+      const result = translateEc2(ctx);
+      const vm = result.translated.find(
+        (r) => r.targetType === 'azurerm_linux_virtual_machine',
+      );
+      const sshKey = (vm!.attributes as Record<string, unknown>)['admin_ssh_key'] as Record<string, unknown>;
+      expect(sshKey['public_key']).toContain('var.ssh_public_key_webserver');
+      expect(sshKey['public_key']).not.toContain('file(');
+      const finding = result.findings.find((f) => f.code === 'EC2_SSH_KEY_MANUAL');
+      expect(finding).toBeDefined();
+    });
+
+    it('emits EC2_SG_MANUAL_WIRING finding when security groups present', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({
+          attributes: { vpc_security_group_ids: ['sg-123'] },
+        }),
+      });
+      const result = translateEc2(ctx);
+      const finding = result.findings.find((f) => f.code === 'EC2_SG_MANUAL_WIRING');
+      expect(finding).toBeDefined();
+      expect(finding!.severity).toBe('info');
+    });
+
+    it('uses Ubuntu 22.04 image reference instead of 18.04', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({ attributes: {} }),
+      });
+      const result = translateEc2(ctx);
+      const vm = result.translated.find((r) => r.targetType === 'azurerm_linux_virtual_machine');
+      const imgRef = (vm!.attributes as Record<string, unknown>)['source_image_reference'] as Record<string, string>;
+      expect(imgRef['sku']).toContain('22_04');
+      expect(imgRef['offer']).toContain('jammy');
+
+      // GCP also uses 22.04
+      const gcpCtx = makeTranslationContext({
+        targetProvider: 'gcp',
+        resource: makeIrResource({ attributes: {} }),
+      });
+      const gcpResult = translateEc2(gcpCtx);
+      const inst = gcpResult.translated.find((r) => r.targetType === 'google_compute_instance');
+      const bootDisk = (inst!.attributes as Record<string, unknown>)['boot_disk'] as Record<string, unknown>;
+      const initParams = bootDisk['initialize_params'] as Record<string, unknown>;
+      expect(initParams['image']).toContain('2204');
     });
   });
 });
@@ -1774,6 +1935,159 @@ describe('translateRds', () => {
       });
       const result = translateRds(ctx);
       expect((result.translated[0]!.attributes as Record<string, unknown>)['backup_retention_days']).toBe(7);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // RDS encryption warning
+  // -----------------------------------------------------------------------
+  describe('encryption warning', () => {
+    it('should emit RDS_NO_ENCRYPTION when storage_encrypted is absent', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeRdsResource({ engine: 'postgres' }),
+      });
+      const result = translateRds(ctx);
+      const finding = result.findings.find((f) => f.code === 'RDS_NO_ENCRYPTION');
+      expect(finding).toBeDefined();
+      expect(finding!.severity).toBe('warning');
+    });
+
+    it('should emit RDS_NO_ENCRYPTION when storage_encrypted=false', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'gcp',
+        resource: makeRdsResource({ engine: 'mysql', storage_encrypted: false }),
+      });
+      const result = translateRds(ctx);
+      const finding = result.findings.find((f) => f.code === 'RDS_NO_ENCRYPTION');
+      expect(finding).toBeDefined();
+      expect(finding!.severity).toBe('warning');
+    });
+
+    it('should NOT emit RDS_NO_ENCRYPTION when storage_encrypted=true', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeRdsResource({ engine: 'postgres', storage_encrypted: true }),
+      });
+      const result = translateRds(ctx);
+      const finding = result.findings.find((f) => f.code === 'RDS_NO_ENCRYPTION');
+      expect(finding).toBeUndefined();
+    });
+  });
+});
+
+// ===========================================================================
+// translateEc2 — security gates
+// ===========================================================================
+
+describe('translateEc2 — security gates', () => {
+  function makeEc2Resource(attrs: Record<string, unknown> = {}): IrResource {
+    return makeIrResource({
+      sourceType: 'aws_instance',
+      sourceName: 'my_server',
+      attributes: { instance_type: 't3.micro', ...attrs },
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // EC2_PUBLIC_NO_SG blocker
+  // -----------------------------------------------------------------------
+  describe('EC2_PUBLIC_NO_SG blocker', () => {
+    it('should block when public IP + no security group (Azure)', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeEc2Resource({ associate_public_ip_address: true }),
+      });
+      const result = translateEc2(ctx);
+      expect(result.translated).toHaveLength(0);
+      const blocker = result.findings.find((f) => f.code === 'EC2_PUBLIC_NO_SG');
+      expect(blocker).toBeDefined();
+      expect(blocker!.severity).toBe('blocker');
+    });
+
+    it('should block when public IP + empty SG array (GCP)', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'gcp',
+        resource: makeEc2Resource({
+          associate_public_ip_address: true,
+          vpc_security_group_ids: [],
+        }),
+      });
+      const result = translateEc2(ctx);
+      expect(result.translated).toHaveLength(0);
+      expect(result.findings.find((f) => f.code === 'EC2_PUBLIC_NO_SG')).toBeDefined();
+    });
+
+    it('should NOT block when public IP + SG present', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeEc2Resource({
+          associate_public_ip_address: true,
+          vpc_security_group_ids: ['sg-12345'],
+        }),
+      });
+      const result = translateEc2(ctx);
+      expect(result.translated.length).toBeGreaterThan(0);
+      expect(result.findings.find((f) => f.code === 'EC2_PUBLIC_NO_SG')).toBeUndefined();
+    });
+
+    it('should NOT block when no public IP', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeEc2Resource({ associate_public_ip_address: false }),
+      });
+      const result = translateEc2(ctx);
+      expect(result.translated.length).toBeGreaterThan(0);
+      expect(result.findings.find((f) => f.code === 'EC2_PUBLIC_NO_SG')).toBeUndefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // EC2_UNENCRYPTED_VOLUME warning
+  // -----------------------------------------------------------------------
+  describe('EC2_UNENCRYPTED_VOLUME warning', () => {
+    it('should warn when root_block_device has encrypted=false', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeEc2Resource({
+          root_block_device: { volume_size: 30, encrypted: false },
+        }),
+      });
+      const result = translateEc2(ctx);
+      const finding = result.findings.find((f) => f.code === 'EC2_UNENCRYPTED_VOLUME');
+      expect(finding).toBeDefined();
+      expect(finding!.severity).toBe('warning');
+    });
+
+    it('should warn when root_block_device exists without encrypted field', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'gcp',
+        resource: makeEc2Resource({
+          root_block_device: { volume_size: 50 },
+        }),
+      });
+      const result = translateEc2(ctx);
+      expect(result.findings.find((f) => f.code === 'EC2_UNENCRYPTED_VOLUME')).toBeDefined();
+    });
+
+    it('should NOT warn when root_block_device has encrypted=true', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeEc2Resource({
+          root_block_device: { volume_size: 30, encrypted: true },
+        }),
+      });
+      const result = translateEc2(ctx);
+      expect(result.findings.find((f) => f.code === 'EC2_UNENCRYPTED_VOLUME')).toBeUndefined();
+    });
+
+    it('should NOT warn when root_block_device is absent', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeEc2Resource({}),
+      });
+      const result = translateEc2(ctx);
+      expect(result.findings.find((f) => f.code === 'EC2_UNENCRYPTED_VOLUME')).toBeUndefined();
     });
   });
 });

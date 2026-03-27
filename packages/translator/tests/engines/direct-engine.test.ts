@@ -454,6 +454,81 @@ describe('directEngine dispatch', () => {
     expect(keys).toEqual(['alpha', 'zulu']);
   });
 
+  it('should set translationPath to generic-fallback in generic fallback', () => {
+    const ctx = makeTranslationContext({
+      resource: makeIrResource({
+        sourceType: 'aws_unknown_thing',
+        attributes: { foo: 'bar' },
+      }),
+      registryEntry: makeRegistryEntry({
+        azure_targets: ['azurerm_some_resource'],
+      }),
+    });
+    const result = directEngine.translate(ctx);
+    expect(result.translated[0]!.traceability.translationPath).toBe('generic-fallback');
+  });
+
+  it('should emit warning (not info) for generic fallback on critical resource type aws_instance', () => {
+    const ctx = makeTranslationContext({
+      resource: makeIrResource({
+        sourceType: 'aws_instance_unknown',
+        attributes: {},
+      }),
+      registryEntry: makeRegistryEntry({
+        azure_targets: ['azurerm_virtual_machine'],
+      }),
+    });
+    const result = directEngine.translate(ctx);
+    const finding = result.findings.find((f) => f.code === 'GENERIC_DIRECT_FALLBACK');
+    expect(finding).toBeDefined();
+    expect(finding!.severity).toBe('warning');
+  });
+
+  it('should emit warning for generic fallback on aws_db_ resource type', () => {
+    const ctx = makeTranslationContext({
+      resource: makeIrResource({
+        sourceType: 'aws_db_proxy',
+        attributes: {},
+      }),
+      registryEntry: makeRegistryEntry({
+        azure_targets: ['azurerm_something'],
+      }),
+    });
+    const result = directEngine.translate(ctx);
+    const finding = result.findings.find((f) => f.code === 'GENERIC_DIRECT_FALLBACK');
+    expect(finding!.severity).toBe('warning');
+  });
+
+  it('should emit warning for generic fallback on aws_iam resource type', () => {
+    const ctx = makeTranslationContext({
+      resource: makeIrResource({
+        sourceType: 'aws_iam_policy',
+        attributes: {},
+      }),
+      registryEntry: makeRegistryEntry({
+        azure_targets: ['azurerm_something'],
+      }),
+    });
+    const result = directEngine.translate(ctx);
+    const finding = result.findings.find((f) => f.code === 'GENERIC_DIRECT_FALLBACK');
+    expect(finding!.severity).toBe('warning');
+  });
+
+  it('should emit info for generic fallback on non-critical resource type', () => {
+    const ctx = makeTranslationContext({
+      resource: makeIrResource({
+        sourceType: 'aws_cloudwatch_metric_alarm',
+        attributes: {},
+      }),
+      registryEntry: makeRegistryEntry({
+        azure_targets: ['azurerm_monitor'],
+      }),
+    });
+    const result = directEngine.translate(ctx);
+    const finding = result.findings.find((f) => f.code === 'GENERIC_DIRECT_FALLBACK');
+    expect(finding!.severity).toBe('info');
+  });
+
   it('should use gcp_targets for generic fallback when target is gcp', () => {
     const ctx = makeTranslationContext({
       targetProvider: 'gcp',
@@ -468,6 +543,19 @@ describe('directEngine dispatch', () => {
     });
     const result = directEngine.translate(ctx);
     expect(result.translated[0]!.targetType).toBe('google_x');
+  });
+
+  it('should leave translationPath as default (specialized) for specialized handlers', () => {
+    const ctx = makeTranslationContext({
+      resource: makeIrResource({
+        sourceType: 'aws_s3_bucket',
+        attributes: { bucket: 'test-bucket' },
+      }),
+    });
+    const result = directEngine.translate(ctx);
+    // Specialized handlers do not set translationPath, so it should be
+    // undefined (Zod default 'specialized' applies on parse)
+    expect(result.translated[0]!.traceability.translationPath).toBeUndefined();
   });
 });
 
@@ -790,6 +878,137 @@ describe('translateS3', () => {
       });
       const result = translateS3(ctx);
       expect(result.translated[0]!.traceability.engineUsed).toBe('direct/s3');
+    });
+  });
+
+  describe('S3 semantic depth', () => {
+    it('should map ACL public-read to blob container access', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({ attributes: { bucket: 'test', acl: 'public-read' } }),
+      });
+      const result = translateS3(ctx);
+      expect(result.translated[1]!.attributes['container_access_type']).toBe('blob');
+    });
+
+    it('should map ACL public-read-write to container access with S3_PUBLIC_ACCESS warning', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({ attributes: { bucket: 'test', acl: 'public-read-write' } }),
+      });
+      const result = translateS3(ctx);
+      expect(result.translated[1]!.attributes['container_access_type']).toBe('container');
+      expect(result.findings.some((f) => f.code === 'S3_PUBLIC_ACCESS' && f.severity === 'warning')).toBe(true);
+    });
+
+    it('should emit S3_WEBSITE_HOSTING warning for Azure when website attr present', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({
+          attributes: { bucket: 'test', website: { index_document: 'index.html', error_document: '404.html' } },
+        }),
+      });
+      const result = translateS3(ctx);
+      expect(result.findings.some((f) => f.code === 'S3_WEBSITE_HOSTING')).toBe(true);
+    });
+
+    it('should emit GCP website block with main_page_suffix and not_found_page', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'gcp',
+        resource: makeIrResource({
+          attributes: { bucket: 'test', website: { index_document: 'home.html', error_document: 'err.html' } },
+        }),
+      });
+      const result = translateS3(ctx);
+      expect(result.translated[0]!.attributes['website']).toEqual({
+        main_page_suffix: 'home.html',
+        not_found_page: 'err.html',
+      });
+    });
+
+    it('should emit S3_OBJECT_LOCK_UNSUPPORTED warning when object_lock_configuration present', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({
+          attributes: { bucket: 'test', object_lock_configuration: { rule: {} } },
+        }),
+      });
+      const result = translateS3(ctx);
+      expect(result.findings.some((f) => f.code === 'S3_OBJECT_LOCK_UNSUPPORTED' && f.severity === 'warning')).toBe(true);
+    });
+
+    it('should emit S3_REQUESTER_PAYS for Azure and set GCP requester_pays=true', () => {
+      // Azure
+      const azCtx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({ attributes: { bucket: 'test', request_payer: 'Requester' } }),
+      });
+      const azResult = translateS3(azCtx);
+      expect(azResult.findings.some((f) => f.code === 'S3_REQUESTER_PAYS')).toBe(true);
+
+      // GCP
+      const gcpCtx = makeTranslationContext({
+        targetProvider: 'gcp',
+        resource: makeIrResource({ attributes: { bucket: 'test', request_payer: 'Requester' } }),
+      });
+      const gcpResult = translateS3(gcpCtx);
+      expect(gcpResult.translated[0]!.attributes['requester_pays']).toBe(true);
+      expect(gcpResult.findings.some((f) => f.code === 'S3_REQUESTER_PAYS')).toBe(true);
+    });
+
+    it('should emit S3_NAME_SANITIZED when Azure name differs from bucket name', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({ attributes: { bucket: 'my-special-bucket' } }),
+      });
+      const result = translateS3(ctx);
+      expect(result.findings.some((f) => f.code === 'S3_NAME_SANITIZED')).toBe(true);
+    });
+
+    it('should pad short names to minimum 3 characters', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({ id: 'res-abc', attributes: { bucket: 'a' } }),
+      });
+      const result = translateS3(ctx);
+      const name = result.translated[0]!.attributes['name'] as string;
+      expect(name.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('should emit S3_REPLICATION_PARTIAL when replication_configuration present', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({
+          attributes: { bucket: 'test', replication_configuration: { role: 'arn:xxx' } },
+        }),
+      });
+      const result = translateS3(ctx);
+      expect(result.findings.some((f) => f.code === 'S3_REPLICATION_PARTIAL')).toBe(true);
+    });
+
+    it('should emit S3_ENCRYPTION_KMS when server_side_encryption_configuration present', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'azure',
+        resource: makeIrResource({
+          attributes: {
+            bucket: 'test',
+            server_side_encryption_configuration: {
+              rule: { apply_server_side_encryption_by_default: { kms_master_key_id: 'arn:aws:kms:...' } },
+            },
+          },
+        }),
+      });
+      const result = translateS3(ctx);
+      expect(result.findings.some((f) => f.code === 'S3_ENCRYPTION_KMS' && f.severity === 'warning')).toBe(true);
+    });
+
+    it('should emit S3_ACL_GCP_IAM for non-private ACL on GCP', () => {
+      const ctx = makeTranslationContext({
+        targetProvider: 'gcp',
+        resource: makeIrResource({ attributes: { bucket: 'test', acl: 'public-read' } }),
+      });
+      const result = translateS3(ctx);
+      expect(result.findings.some((f) => f.code === 'S3_ACL_GCP_IAM')).toBe(true);
     });
   });
 });

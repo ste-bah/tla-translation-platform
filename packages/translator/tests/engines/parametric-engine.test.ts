@@ -618,6 +618,40 @@ describe('parametricEngine dispatch', () => {
     const result = parametricEngine.translate(ctx);
     expect(result.translated[0]!.traceability.mappingType).toBe('parametric');
   });
+
+  it('should set translationPath to generic-fallback in generic parametric fallback', () => {
+    const ctx = makeTranslationContext({
+      resource: makeIrResource({ sourceType: 'aws_unknown', attributes: { a: 1 } }),
+      registryEntry: makeRegistryEntry({ azure_targets: ['azurerm_something'] }),
+    });
+
+    const result = parametricEngine.translate(ctx);
+    expect(result.translated[0]!.traceability.translationPath).toBe('generic-fallback');
+  });
+
+  it('should emit warning for generic parametric fallback on critical aws_security_group type', () => {
+    const ctx = makeTranslationContext({
+      resource: makeIrResource({ sourceType: 'aws_security_group_rule', attributes: {} }),
+      registryEntry: makeRegistryEntry({ azure_targets: ['azurerm_network_security_rule'] }),
+    });
+
+    const result = parametricEngine.translate(ctx);
+    const finding = result.findings.find((f) => f.code === 'GENERIC_PARAMETRIC_FALLBACK');
+    expect(finding).toBeDefined();
+    expect(finding!.severity).toBe('warning');
+  });
+
+  it('should emit info for generic parametric fallback on non-critical resource type', () => {
+    const ctx = makeTranslationContext({
+      resource: makeIrResource({ sourceType: 'aws_cloudwatch_log_group', attributes: {} }),
+      registryEntry: makeRegistryEntry({ azure_targets: ['azurerm_log_analytics'] }),
+    });
+
+    const result = parametricEngine.translate(ctx);
+    const finding = result.findings.find((f) => f.code === 'GENERIC_PARAMETRIC_FALLBACK');
+    expect(finding).toBeDefined();
+    expect(finding!.severity).toBe('info');
+  });
 });
 
 // ===========================================================================

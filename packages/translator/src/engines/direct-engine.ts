@@ -35,6 +35,19 @@ const DISPATCH: ReadonlyMap<string, (ctx: TranslationContext) => EngineResult> =
 /**
  * Generic fallback: copies all attributes verbatim and emits an info finding.
  */
+/**
+ * Critical resource type prefixes that warrant a warning (not info) when
+ * translated via generic fallback, because verbatim attribute copy is
+ * unlikely to produce a working result for these families.
+ */
+const CRITICAL_FALLBACK_PREFIXES = [
+  'aws_instance',
+  'aws_db_',
+  'aws_rds',
+  'aws_security_group',
+  'aws_iam',
+] as const;
+
 function genericFallback(ctx: TranslationContext): EngineResult {
   const { resource, registryEntry, targetProvider } = ctx;
   const targets =
@@ -63,6 +76,11 @@ function genericFallback(ctx: TranslationContext): EngineResult {
     sortedAttrs[key] = resource.attributes[key];
   }
 
+  // Raise severity for critical resource families
+  const isCritical = CRITICAL_FALLBACK_PREFIXES.some((prefix) =>
+    resource.sourceType.startsWith(prefix),
+  );
+
   return {
     translated: [
       {
@@ -70,13 +88,13 @@ function genericFallback(ctx: TranslationContext): EngineResult {
         targetName: resource.sourceName,
         attributes: sortedAttrs,
         sourceId: resource.id,
-        traceability: makeTraceability(ctx, 'direct/generic'),
+        traceability: { ...makeTraceability(ctx, 'direct/generic'), translationPath: 'generic-fallback' as const },
       },
     ],
     findings: [
       createFinding(
         resource.id,
-        'info',
+        isCritical ? 'warning' : 'info',
         'GENERIC_DIRECT_FALLBACK',
         `No specialized direct mapper for '${resource.sourceType}'; attributes copied verbatim`,
       ),

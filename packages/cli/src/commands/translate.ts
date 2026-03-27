@@ -12,6 +12,7 @@
  */
 
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { stat, mkdir, writeFile } from 'node:fs/promises';
 import type { Command } from 'commander';
 import {
@@ -174,7 +175,7 @@ function formatTranslationText(
   lines.push(`  Advisory:   ${String(manifestSummary.advisory)}`);
   lines.push('');
 
-  const fileNames = [...Object.keys(result.files), 'manifest.json', 'translation-report.md', 'audit-log.jsonl', 'confidence-report.json'];
+  const fileNames = [...Object.keys(result.files), 'canonical-ir.json', 'manifest.json', 'translation-report.md', 'audit-log.jsonl', 'confidence-report.json'];
   if (manifestSummary.blocked > 0 || manifestSummary.advisory > 0) {
     fileNames.push('migration-pack.md');
   }
@@ -381,6 +382,10 @@ async function runFullTranslation(
   // Determine / create output directory and write generated files
   const outputDir = resolve(opts.output ?? `./tla-output-${opts.target}`);
   await mkdir(outputDir, { recursive: true });
+
+  // Persist the Canonical IR so validation can auto-discover it
+  await writeFile(resolve(outputDir, 'canonical-ir.json'), JSON.stringify(ir, null, 2), 'utf-8');
+
   for (const [fileName, content] of Object.entries(result.files)) {
     await writeFile(resolve(outputDir, fileName), content, 'utf-8');
   }
@@ -393,8 +398,17 @@ async function runFullTranslation(
   const report = buildTranslationReport(result, sourcePath, opts.target, outputDir);
   await writeFile(resolve(outputDir, 'translation-report.md'), report, 'utf-8');
 
+  // Build artifact hashes for audit integrity
+  const artifactHashes: Record<string, string> = {};
+  const irJson = JSON.stringify(ir, null, 2);
+  artifactHashes['canonical-ir.json'] = createHash('sha256').update(irJson).digest('hex');
+  for (const [fileName, content] of Object.entries(result.files)) {
+    artifactHashes[fileName] = createHash('sha256').update(content).digest('hex');
+  }
+  artifactHashes['manifest.json'] = createHash('sha256').update(manifestJson).digest('hex');
+
   // Write audit trail entry (append-only JSONL)
-  const auditEntry = buildAuditEntry(result, sourcePath, opts.target, Date.now() - startTime, manifestJson);
+  const auditEntry = buildAuditEntry(result, sourcePath, opts.target, Date.now() - startTime, manifestJson, artifactHashes);
   await appendAuditEntry(outputDir, auditEntry);
 
   // Generate migration pack for blocked/advisory resources

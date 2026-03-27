@@ -4,10 +4,14 @@ export { buildTranslationPlan } from './compiler/translation-planner.js';
 export { assembleFiles } from './compiler/file-assembler.js';
 export { buildTranslationReport } from './compiler/report-writer.js';
 export { buildConfidenceReport } from './compiler/confidence-report.js';
-export type { ConfidenceReport, ResourceConfidence } from './compiler/confidence-report.js';
+export type { ConfidenceBreakdown, ConfidenceReport, ResourceConfidence } from './compiler/confidence-report.js';
 
 // Engines
 export { engineRegistry, getEngine } from './engines/index.js';
+
+// Coverage matrix
+export { buildCoverageMatrix, classifyEntry } from './engines/coverage-matrix.js';
+export type { CoverageMatrix, CoverageEntry } from './engines/coverage-matrix.js';
 
 // Engine types
 export type {
@@ -18,6 +22,13 @@ export type {
   PlannerResult,
   AssemblyInput,
 } from './engines/index.js';
+
+// Topology validation
+export { validateTopology } from './engines/structural/topology-validator.js';
+export type {
+  TopologyValidationResult,
+  SubnetIntent,
+} from './engines/structural/topology-validator.js';
 
 // Code generation
 export { AzureCodeGenerator, convertValue } from './codegen/index.js';
@@ -134,5 +145,5 @@ export type {
 } from './validation/index.js';
 
 // Audit trail
-export { buildAuditEntry, appendAuditEntry } from './audit/index.js';
-export type { AuditEntry } from './audit/index.js';
+export { buildAuditEntry, appendAuditEntry, checkAuditIntegrity } from './audit/index.js';
+export type { AuditEntry, IntegrityCheckResult } from './audit/index.js';

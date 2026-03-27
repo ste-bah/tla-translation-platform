@@ -607,4 +607,45 @@ describe('TranslationCompiler', () => {
       expect(result.files['main.tf']).toContain('azurerm_subnet');
     });
   });
+
+  describe('generic fallback manifest summary', () => {
+    it('should emit TRANSLATION_FALLBACK_SUMMARY when resources use generic fallback', () => {
+      // Use a source type that will hit the generic direct fallback
+      const resource = makeIrResource({
+        id: 'unknown-001',
+        sourceType: 'aws_unknown_thing',
+        sourceName: 'mystery',
+        attributes: { foo: 'bar' },
+      });
+      const entries = new Map<string, RegistryEntry>([
+        ['aws_unknown_thing', makeRegistryEntry({
+          aws_service: 'aws_unknown_thing',
+          mapping_type: 'direct',
+          azure_targets: ['azurerm_something'],
+        })],
+      ]);
+      const ir = makeCanonicalIR({ resources: [resource] });
+      const compiler = new TranslationCompiler(makeMockRegistry(entries));
+      const result = compiler.translate(ir, makeCompilerOptions());
+
+      const summaryFinding = result.manifest.findings.find(
+        (f) => f.code === 'TRANSLATION_FALLBACK_SUMMARY',
+      );
+      expect(summaryFinding).toBeDefined();
+      expect(summaryFinding!.message).toContain('1 of 1');
+      expect(summaryFinding!.message).toContain('generic fallback');
+    });
+
+    it('should NOT emit TRANSLATION_FALLBACK_SUMMARY when no generic fallbacks used', () => {
+      // Empty IR has no fallbacks
+      const registry = makeMockRegistry(new Map());
+      const compiler = new TranslationCompiler(registry);
+      const result = compiler.translate(makeCanonicalIR(), makeCompilerOptions());
+
+      const summaryFinding = result.manifest.findings.find(
+        (f) => f.code === 'TRANSLATION_FALLBACK_SUMMARY',
+      );
+      expect(summaryFinding).toBeUndefined();
+    });
+  });
 });

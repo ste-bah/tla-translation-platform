@@ -58,8 +58,8 @@ function expandGenericCompound(ctx: TranslationContext): EngineResult {
     };
   }
 
-  // Compute base traceability
-  const baseTraceability = makeTraceability(ctx, 'compound', 'compound');
+  // Compute base traceability — mark as generic fallback
+  const baseTraceability = { ...makeTraceability(ctx, 'compound', 'compound'), translationPath: 'generic-fallback' as const };
 
   // Generate one translated resource per target
   const translated: TranslatedResource[] = targets.map((targetType, index) => ({
@@ -72,7 +72,14 @@ function expandGenericCompound(ctx: TranslationContext): EngineResult {
 
   return {
     translated,
-    findings: [],
+    findings: [
+      createFinding(
+        resource.id,
+        'info',
+        'GENERIC_COMPOUND_FALLBACK',
+        `No specialized compound mapper for '${resource.sourceType}'; generic 1:N expansion used`,
+      ),
+    ],
   };
 }
 

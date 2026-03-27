@@ -31,6 +31,7 @@ const {
   mockCheckEquivalence,
   mockScoreConfidence,
   mockEstimateCostDelta,
+  mockRunTerraformValidate,
 } = vi.hoisted(() => ({
   mockReaddir: vi.fn(),
   mockReadFile: vi.fn(),
@@ -39,6 +40,7 @@ const {
   mockCheckEquivalence: vi.fn(),
   mockScoreConfidence: vi.fn(),
   mockEstimateCostDelta: vi.fn(),
+  mockRunTerraformValidate: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -48,6 +50,10 @@ const {
 vi.mock('node:fs/promises', () => ({
   readdir: (...args: unknown[]) => mockReaddir(...args),
   readFile: (...args: unknown[]) => mockReadFile(...args),
+}));
+
+vi.mock('@tla/translator', () => ({
+  runTerraformValidate: (...args: unknown[]) => mockRunTerraformValidate(...args),
 }));
 
 vi.mock('@tla/validator', () => ({
@@ -135,6 +141,60 @@ const fakeCostReport = {
   reviewRequired: true as const,
 };
 
+/** Minimal manifest JSON (as found in translated dir) */
+const fakeManifestContent = JSON.stringify({
+  version: '1.0.0',
+  registryVersion: '2026.03.13',
+  target: 'azure',
+  counts: { total: 0, translated: 0, expanded: 0, partial: 0, blocked: 0, advisory: 0 },
+  entries: [],
+  findings: [],
+  confidenceOverall: 0.9,
+});
+
+/** Minimal canonical-ir.json (as found in translated dir) */
+const fakeCanonicalIrContent = JSON.stringify({
+  ir: {
+    version: '1.0.0',
+    sourceProvider: 'aws',
+    metadata: {
+      generatedAt: new Date().toISOString(),
+      sourceFiles: [],
+      toolVersion: '0.1.0',
+      resourceCount: 0,
+      relationshipCount: 0,
+    },
+    resources: [],
+    relationships: [],
+    modules: [],
+    intents: [],
+  },
+  translationResult: {
+    target: 'azure',
+    resources: [],
+    files: {},
+    manifest: {
+      version: '1.0.0',
+      registryVersion: '2026.03.13',
+      target: 'azure',
+      counts: { total: 0, translated: 0, expanded: 0, partial: 0, blocked: 0, advisory: 0 },
+      entries: [],
+      findings: [],
+      confidenceOverall: 0.9,
+    },
+    findings: [],
+    stats: {
+      totalResources: 0,
+      translated: 0,
+      expanded: 0,
+      partial: 0,
+      blocked: 0,
+      advisory: 0,
+      durationMs: 10,
+    },
+  },
+});
+
 /** Minimal IR JSON (as stored in irFile) */
 const fakeIrFileContent = JSON.stringify({
   ir: {
@@ -178,6 +238,25 @@ const fakeIrFileContent = JSON.stringify({
   },
 });
 
+/**
+ * Sets up mockReadFile to return manifest.json and/or canonical-ir.json from the
+ * translated directory, simulating auto-discovery.
+ */
+function setupDiscovery(opts: { manifest?: boolean; ir?: boolean } = {}): void {
+  mockReadFile.mockImplementation(async (path: string) => {
+    if (path === FAKE_IR_PATH) return fakeIrFileContent;
+    if (path.endsWith('/manifest.json')) {
+      if (opts.manifest) return fakeManifestContent;
+      throw new Error('ENOENT: no such file or directory');
+    }
+    if (path.endsWith('/canonical-ir.json')) {
+      if (opts.ir) return fakeCanonicalIrContent;
+      throw new Error('ENOENT: no such file or directory');
+    }
+    return 'resource "azurerm_resource_group" "rg" {}\n';
+  });
+}
+
 /** Default well-formed args */
 const defaultArgs: ValidateArgs = {
   translated_dir: FAKE_DIR,
@@ -192,10 +271,21 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   // Default: directory has two .tf files with balanced braces
+  // Auto-discovery reads for manifest.json and canonical-ir.json fail by default (not found)
   mockReaddir.mockResolvedValue(['main.tf', 'variables.tf']);
   mockReadFile.mockImplementation(async (path: string) => {
     if (path === FAKE_IR_PATH) return fakeIrFileContent;
+    // Auto-discovery: manifest.json and canonical-ir.json not present by default
+    if (path.endsWith('/manifest.json') || path.endsWith('/canonical-ir.json')) {
+      throw new Error('ENOENT: no such file or directory');
+    }
     return 'resource "azurerm_resource_group" "rg" {}\n';
+  });
+
+  // Default: terraform validate succeeds with valid output
+  mockRunTerraformValidate.mockReturnValue({
+    ok: true,
+    stdout: JSON.stringify({ valid: true, diagnostics: [] }),
   });
 
   mockEvaluatePolicies.mockResolvedValue(fakePolicyReport);
@@ -260,6 +350,77 @@ describe('handleValidate — syntax check', () => {
     expect(result.checks?.compliance).toBeUndefined();
     expect(mockEvaluatePolicies).not.toHaveBeenCalled();
   });
+
+  it('detects empty .tf files as warning', async () => {
+    mockReadFile.mockResolvedValue('');
+    const result = await handleValidate({ ...defaultArgs, checks: ['syntax'] });
+
+    expect(result.success).toBe(true);
+    expect(result.checks?.syntax?.result).toBe('warn');
+    expect(result.checks?.syntax?.issues.some((i) => i.includes('empty .tf file'))).toBe(true);
+  });
+
+  it('detects unclosed block structure (brace counting)', async () => {
+    mockReadFile.mockResolvedValue('resource "a" "b" {\n  name = "test"\n');
+    const result = await handleValidate({ ...defaultArgs, checks: ['syntax'] });
+
+    expect(result.success).toBe(true);
+    expect(result.checks?.syntax?.result).toBe('warn');
+    expect(result.checks?.syntax?.issues.some((i) => i.includes('unbalanced braces'))).toBe(true);
+  });
+
+  it('includes terraform-validate tier when terraform available', async () => {
+    mockRunTerraformValidate.mockReturnValue({
+      ok: true,
+      stdout: JSON.stringify({ valid: true, diagnostics: [] }),
+    });
+
+    const result = await handleValidate({ ...defaultArgs, checks: ['syntax'] });
+
+    expect(result.success).toBe(true);
+    expect(result.checks?.syntax?.validationTiers).toContain('structural');
+    expect(result.checks?.syntax?.validationTiers).toContain('terraform-validate');
+  });
+
+  it('gracefully skips terraform-validate when binary missing', async () => {
+    mockRunTerraformValidate.mockReturnValue({
+      ok: false,
+      code: 'HCL_VALIDATION_SKIPPED',
+      message: 'Terraform binary not found on PATH — validation skipped.',
+    });
+
+    const result = await handleValidate({ ...defaultArgs, checks: ['syntax'] });
+
+    expect(result.success).toBe(true);
+    expect(result.checks?.syntax?.result).toBe('warn');
+    expect(result.checks?.syntax?.issues.some((i) => i.includes('terraform validate skipped'))).toBe(true);
+  });
+
+  it('reports validationTiers in result', async () => {
+    const result = await handleValidate({ ...defaultArgs, checks: ['syntax'] });
+
+    expect(result.checks?.syntax?.validationTiers).toBeDefined();
+    expect(Array.isArray(result.checks?.syntax?.validationTiers)).toBe(true);
+    expect(result.checks?.syntax?.validationTiers).toContain('structural');
+  });
+
+  it('fails when terraform validate reports errors', async () => {
+    mockRunTerraformValidate.mockReturnValue({
+      ok: true,
+      stdout: JSON.stringify({
+        valid: false,
+        diagnostics: [
+          { severity: 'error', summary: 'Missing required argument', detail: 'The argument "name" is required.' },
+        ],
+      }),
+    });
+
+    const result = await handleValidate({ ...defaultArgs, checks: ['syntax'] });
+
+    expect(result.success).toBe(true);
+    expect(result.checks?.syntax?.result).toBe('fail');
+    expect(result.checks?.syntax?.issues.some((i) => i.includes('[terraform error]'))).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -268,6 +429,7 @@ describe('handleValidate — syntax check', () => {
 
 describe('handleValidate — policy check', () => {
   it('passes when all policies pass', async () => {
+    setupDiscovery({ manifest: true });
     const result = await handleValidate({ ...defaultArgs, checks: ['syntax', 'policy'] });
 
     expect(result.success).toBe(true);
@@ -277,6 +439,7 @@ describe('handleValidate — policy check', () => {
   });
 
   it('reports warn when policy has failures', async () => {
+    setupDiscovery({ manifest: true });
     mockEvaluatePolicies.mockResolvedValue({
       passed: false,
       results: [
@@ -308,6 +471,7 @@ describe('handleValidate — policy check', () => {
   });
 
   it('reports fail when policy has blocker failures', async () => {
+    setupDiscovery({ manifest: true });
     mockEvaluatePolicies.mockResolvedValue({
       passed: false,
       results: [
@@ -344,6 +508,7 @@ describe('handleValidate — policy check', () => {
 
 describe('handleValidate — compliance check', () => {
   it('passes with cis-basic profile', async () => {
+    setupDiscovery({ manifest: true });
     const result = await handleValidate({
       ...defaultArgs,
       checks: ['syntax', 'compliance'],
@@ -356,6 +521,7 @@ describe('handleValidate — compliance check', () => {
   });
 
   it('passes with cis-advanced profile', async () => {
+    setupDiscovery({ manifest: true });
     const result = await handleValidate({
       ...defaultArgs,
       checks: ['syntax', 'compliance'],
@@ -367,6 +533,7 @@ describe('handleValidate — compliance check', () => {
   });
 
   it('skips with "none" profile and returns 100 score', async () => {
+    setupDiscovery({ manifest: true });
     const result = await handleValidate({
       ...defaultArgs,
       checks: ['syntax', 'compliance'],
@@ -380,6 +547,7 @@ describe('handleValidate — compliance check', () => {
   });
 
   it('warns when compliance score is moderate', async () => {
+    setupDiscovery({ manifest: true });
     mockCheckCompliance.mockReturnValue({
       score: 75,
       passed: false,
@@ -397,6 +565,7 @@ describe('handleValidate — compliance check', () => {
   });
 
   it('fails when compliance score is below 50', async () => {
+    setupDiscovery({ manifest: true });
     mockCheckCompliance.mockReturnValue({
       score: 40,
       passed: false,
@@ -509,6 +678,7 @@ describe('handleValidate — semantic diff', () => {
 
 describe('handleValidate — confidence check', () => {
   it('runs scoreConfidence with policy and compliance reports', async () => {
+    setupDiscovery({ manifest: true, ir: true });
     const result = await handleValidate({
       ...defaultArgs,
       checks: ['syntax', 'policy', 'compliance', 'confidence'],
@@ -523,6 +693,7 @@ describe('handleValidate — confidence check', () => {
   });
 
   it('returns warn when escalation is required', async () => {
+    setupDiscovery({ manifest: true, ir: true });
     mockScoreConfidence.mockReturnValue({
       ...fakeConfidenceReport,
       overall: 0.5,
@@ -594,6 +765,7 @@ describe('handleValidate — cost check', () => {
 
 describe('handleValidate — overall result roll-up', () => {
   it('returns pass when all checks pass', async () => {
+    setupDiscovery({ manifest: true });
     const result = await handleValidate({
       ...defaultArgs,
       checks: ['syntax', 'policy', 'compliance'],
@@ -625,6 +797,7 @@ describe('handleValidate — overall result roll-up', () => {
   });
 
   it('returns fail when any check fails regardless of strict', async () => {
+    setupDiscovery({ manifest: true });
     mockEvaluatePolicies.mockResolvedValue({
       passed: false,
       results: [
@@ -667,19 +840,37 @@ describe('handleValidate — overall result roll-up', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleValidate — defaults', () => {
-  it('runs all 6 checks by default', async () => {
+  it('runs all 6 checks by default (with discovered artifacts)', async () => {
+    setupDiscovery({ manifest: true, ir: true });
     const result = await handleValidate(defaultArgs);
 
     expect(result.checks?.syntax).toBeDefined();
     expect(result.checks?.policy).toBeDefined();
     expect(result.checks?.compliance).toBeDefined();
-    // semantic and cost are skipped without irFile — but they are attempted
-    expect(result.findings?.some((f) => f.code === 'VALIDATE_SEMANTIC_SKIP')).toBe(true);
-    expect(result.findings?.some((f) => f.code === 'VALIDATE_COST_SKIP')).toBe(true);
     expect(result.checks?.confidence).toBeDefined();
+    expect(result.discoveredArtifacts).toContain('manifest.json');
+    expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+  });
+
+  it('skips policy/compliance/semantic/confidence/cost when no artifacts discovered', async () => {
+    // Default: no manifest.json or canonical-ir.json in translated dir
+    const result = await handleValidate(defaultArgs);
+
+    expect(result.checks?.syntax).toBeDefined();
+    // Policy and compliance skipped — no manifest
+    expect(result.checks?.policy).toBeUndefined();
+    expect(result.checks?.compliance).toBeUndefined();
+    expect(result.findings?.some((f) => f.code === 'VALIDATE_POLICY_SKIP')).toBe(true);
+    expect(result.findings?.some((f) => f.code === 'VALIDATE_COMPLIANCE_SKIP')).toBe(true);
+    // Semantic, confidence, cost skipped — no IR
+    expect(result.findings?.some((f) => f.code === 'VALIDATE_SEMANTIC_SKIP')).toBe(true);
+    expect(result.findings?.some((f) => f.code === 'VALIDATE_CONFIDENCE_SKIP')).toBe(true);
+    expect(result.findings?.some((f) => f.code === 'VALIDATE_COST_SKIP')).toBe(true);
+    expect(result.discoveredArtifacts).toEqual([]);
   });
 
   it('uses cis-basic compliance profile by default', async () => {
+    setupDiscovery({ manifest: true });
     await handleValidate({ ...defaultArgs, checks: ['compliance'] });
 
     // CIS_BASIC is the { name: 'cis-basic', ... } mock — checkCompliance is called with it
@@ -734,5 +925,149 @@ describe('validate tool wiring via registerTools', () => {
 
     const body = JSON.parse(content[0].text) as { success: boolean };
     expect(body.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-discovery
+// ---------------------------------------------------------------------------
+
+describe('handleValidate — auto-discovery', () => {
+  it('auto-discovers manifest.json from translated directory', async () => {
+    setupDiscovery({ manifest: true });
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'policy'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.discoveredArtifacts).toContain('manifest.json');
+    // Policy runs because manifest was discovered
+    expect(result.checks?.policy).toBeDefined();
+    expect(result.checks?.policy?.result).toBe('pass');
+    expect(mockEvaluatePolicies).toHaveBeenCalled();
+  });
+
+  it('auto-discovers canonical-ir.json from translated directory', async () => {
+    setupDiscovery({ ir: true });
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'confidence'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+    // Confidence runs because IR was discovered
+    expect(result.checks?.confidence).toBeDefined();
+    expect(mockScoreConfidence).toHaveBeenCalled();
+  });
+
+  it('skips policy check when no manifest found (result: skipped in findings)', async () => {
+    // Default: no manifest in translated dir
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'policy'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.checks?.policy).toBeUndefined();
+    expect(mockEvaluatePolicies).not.toHaveBeenCalled();
+    const skipFinding = result.findings?.find((f) => f.code === 'VALIDATE_POLICY_SKIP');
+    expect(skipFinding).toBeDefined();
+    expect(skipFinding?.message).toMatch(/no manifest\.json/);
+  });
+
+  it('skips semantic diff when no IR found', async () => {
+    // No canonical-ir.json, no irFile
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'semantic'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.checks?.semanticDiff).toBeUndefined();
+    expect(mockCheckEquivalence).not.toHaveBeenCalled();
+    expect(result.findings?.some((f) => f.code === 'VALIDATE_SEMANTIC_SKIP')).toBe(true);
+  });
+
+  it('uses explicit irFile over auto-discovered IR', async () => {
+    // Both auto-discovery and irFile provide IR — auto-discovered wins (irFile only fills gaps)
+    setupDiscovery({ ir: true });
+
+    // Create a distinct irFile content with different data
+    const customIrContent = JSON.stringify({
+      ir: {
+        version: '2.0.0',
+        sourceProvider: 'aws',
+        metadata: {
+          generatedAt: new Date().toISOString(),
+          sourceFiles: ['custom.tf'],
+          toolVersion: '0.2.0',
+          resourceCount: 5,
+          relationshipCount: 0,
+        },
+        resources: [],
+        relationships: [],
+        modules: [],
+        intents: [],
+      },
+      translationResult: null,
+    });
+
+    mockReadFile.mockImplementation(async (path: string) => {
+      if (path === FAKE_IR_PATH) return customIrContent;
+      if (path.endsWith('/manifest.json')) throw new Error('ENOENT');
+      if (path.endsWith('/canonical-ir.json')) return fakeCanonicalIrContent;
+      return 'resource "azurerm_resource_group" "rg" {}\n';
+    });
+
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'confidence'],
+      irFile: FAKE_IR_PATH,
+    });
+
+    expect(result.success).toBe(true);
+    // Auto-discovered IR is used (version 1.0.0 from fakeCanonicalIrContent), not the irFile
+    expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+    expect(result.checks?.confidence).toBeDefined();
+  });
+
+  it('includes discoveredArtifacts in response', async () => {
+    setupDiscovery({ manifest: true, ir: true });
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.discoveredArtifacts).toBeDefined();
+    expect(Array.isArray(result.discoveredArtifacts)).toBe(true);
+    expect(result.discoveredArtifacts).toContain('manifest.json');
+    expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+  });
+
+  it('returns empty discoveredArtifacts when no artifacts found', async () => {
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax'],
+    });
+
+    expect(result.discoveredArtifacts).toEqual([]);
+  });
+
+  it('falls back to irFile when auto-discovery finds no IR', async () => {
+    // No canonical-ir.json in translated dir, but irFile is provided
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'semantic'],
+      irFile: FAKE_IR_PATH,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.discoveredArtifacts).toEqual([]);
+    // Semantic runs because irFile was loaded
+    expect(result.checks?.semanticDiff).toBeDefined();
+    expect(mockCheckEquivalence).toHaveBeenCalled();
   });
 });

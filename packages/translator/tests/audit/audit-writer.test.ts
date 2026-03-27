@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
-import { readFile, rm, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildAuditEntry, appendAuditEntry } from '../../src/audit/audit-writer.js';
+import { checkAuditIntegrity } from '../../src/audit/integrity-checker.js';
+import type { AuditEntry } from '../../src/audit/audit-types.js';
 import type { TranslationResult } from '@tla/shared';
 
 // ---------------------------------------------------------------------------
@@ -164,10 +166,117 @@ describe('appendAuditEntry', () => {
         manifestHash: 'abc',
         findingCounts: { blocker: 0, warning: 0, info: 0 },
         durationMs: 0,
+        artifactHashes: {},
+        toolVersion: '0.1.0',
       }),
     ).resolves.toBeUndefined();
 
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('[audit] Failed to write audit log'));
     stderrSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// New: artifactHashes & toolVersion
+// ---------------------------------------------------------------------------
+
+describe('buildAuditEntry — artifactHashes & toolVersion', () => {
+  it('includes artifactHashes when provided', () => {
+    const result = makeResult();
+    const manifestJson = JSON.stringify(result.manifest, null, 2);
+    const hashes = { 'main.tf': 'abc123', 'manifest.json': 'def456' };
+    const entry = buildAuditEntry(result, '/src', 'azure', 10, manifestJson, hashes);
+
+    expect(entry.artifactHashes).toEqual(hashes);
+  });
+
+  it('includes toolVersion when provided', () => {
+    const result = makeResult();
+    const entry = buildAuditEntry(result, '/src', 'azure', 10, '{}', {}, '1.2.3');
+
+    expect(entry.toolVersion).toBe('1.2.3');
+  });
+
+  it('defaults artifactHashes to empty object and toolVersion to 0.1.0', () => {
+    const result = makeResult();
+    const entry = buildAuditEntry(result, '/src', 'azure', 10, '{}');
+
+    expect(entry.artifactHashes).toEqual({});
+    expect(entry.toolVersion).toBe('0.1.0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// New: checkAuditIntegrity
+// ---------------------------------------------------------------------------
+
+describe('checkAuditIntegrity', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = resolve(tmpdir(), `integrity-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await mkdir(tmpDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  function hashContent(content: string): string {
+    return createHash('sha256').update(content).digest('hex');
+  }
+
+  function makeAuditEntry(artifactHashes: Record<string, string>): AuditEntry {
+    return {
+      timestamp: new Date().toISOString(),
+      runId: '00000000-0000-4000-8000-000000000000',
+      source: '/test',
+      target: 'azure',
+      registryVersion: '1.0.0',
+      resourceCount: 1,
+      counts: { translated: 1, expanded: 0, partial: 0, blocked: 0, advisory: 0, total: 1 },
+      confidenceOverall: 0.9,
+      manifestHash: 'unused',
+      findingCounts: { blocker: 0, warning: 0, info: 0 },
+      durationMs: 50,
+      artifactHashes,
+      toolVersion: '0.1.0',
+    };
+  }
+
+  it('returns valid for matching hashes', async () => {
+    const content = 'resource "azurerm_resource_group" "rg" {}';
+    await writeFile(join(tmpDir, 'main.tf'), content, 'utf-8');
+
+    const entry = makeAuditEntry({ 'main.tf': hashContent(content) });
+    const result = await checkAuditIntegrity(tmpDir, entry);
+
+    expect(result.valid).toBe(true);
+    expect(result.mismatches).toHaveLength(0);
+    expect(result.missing).toHaveLength(0);
+  });
+
+  it('detects tampered files', async () => {
+    const original = 'resource "azurerm_resource_group" "rg" {}';
+    const tampered = 'resource "azurerm_resource_group" "rg" { location = "eastus" }';
+    await writeFile(join(tmpDir, 'main.tf'), tampered, 'utf-8');
+
+    const entry = makeAuditEntry({ 'main.tf': hashContent(original) });
+    const result = await checkAuditIntegrity(tmpDir, entry);
+
+    expect(result.valid).toBe(false);
+    expect(result.mismatches).toHaveLength(1);
+    expect(result.mismatches[0]!.file).toBe('main.tf');
+    expect(result.mismatches[0]!.expected).toBe(hashContent(original));
+    expect(result.mismatches[0]!.actual).toBe(hashContent(tampered));
+  });
+
+  it('reports missing files', async () => {
+    const entry = makeAuditEntry({ 'gone.tf': hashContent('whatever') });
+    const result = await checkAuditIntegrity(tmpDir, entry);
+
+    expect(result.valid).toBe(false);
+    expect(result.missing).toEqual(['gone.tf']);
+    expect(result.mismatches).toHaveLength(0);
   });
 });

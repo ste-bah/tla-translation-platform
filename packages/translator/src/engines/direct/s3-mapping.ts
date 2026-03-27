@@ -14,6 +14,7 @@ import {
   transformRegion,
   collectUnmappedAttrs,
   makeTraceability,
+  createFinding,
 } from './attribute-transformer.js';
 
 // Keys we explicitly handle during mapping
@@ -34,6 +35,31 @@ const MAPPED_KEYS: readonly string[] = [
   'object_lock_configuration',
   'website',
 ];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function sanitizeAzureName(raw: string, resourceId: string): { name: string; sanitized: boolean } {
+  let name = raw.replace(/[^a-z0-9]/g, '').slice(0, 24);
+  if (name.length < 3) {
+    const hash = resourceId.replace(/[^a-z0-9]/g, '').slice(0, 4);
+    name = (name + hash).slice(0, 24).padEnd(3, '0');
+  }
+  return { name, sanitized: name !== raw };
+}
+
+function mapAclToContainerAccess(acl: string | undefined): { access: string; findings: Array<ReturnType<typeof createFinding>> } {
+  const findings: Array<ReturnType<typeof createFinding>> = [];
+  if (!acl || acl === 'private') return { access: 'private', findings };
+  if (acl === 'public-read') return { access: 'blob', findings };
+  if (acl === 'public-read-write') {
+    findings.push(createFinding('', 'warning', 'S3_PUBLIC_ACCESS', 'public-read-write ACL detected — container has full public access'));
+    return { access: 'container', findings };
+  }
+  findings.push(createFinding('', 'info', 'S3_ACL_UNSUPPORTED', `ACL '${acl}' has no direct Azure mapping — defaulting to private`));
+  return { access: 'private', findings };
+}
 
 // ---------------------------------------------------------------------------
 // Azure translation
@@ -59,13 +85,21 @@ function translateToAzure(ctx: TranslationContext): EngineResult {
     | undefined;
   const versioningEnabled = versioning?.['enabled'] === true;
 
+  // Name sanitization
+  const { name: accountName, sanitized } = sanitizeAzureName(bucketName, resource.id);
+
+  // Encryption
+  const encryption = attrs['server_side_encryption_configuration'] as
+    | Record<string, unknown>
+    | undefined;
+
   // Storage account attributes
   const accountAttrs: Record<string, unknown> = {
     account_kind: 'StorageV2',
     account_replication_type: accountReplicationType,
     account_tier: 'Standard',
     location: transformRegion('azure', (attrs['region'] as string) ?? 'us-east-1'),
-    name: bucketName.replace(/[^a-z0-9]/g, '').slice(0, 24),
+    name: accountName,
   };
 
   if (versioningEnabled) {
@@ -78,9 +112,14 @@ function translateToAzure(ctx: TranslationContext): EngineResult {
     accountAttrs['tags'] = transformTags('azure', tags);
   }
 
+  // ACL-aware container access
+  const acl = attrs['acl'] as string | undefined;
+  const { access: containerAccess, findings: aclFindings } = mapAclToContainerAccess(acl);
+  for (const f of aclFindings) f.resourceId = resource.id;
+
   // Container attributes
   const containerAttrs: Record<string, unknown> = {
-    container_access_type: 'private',
+    container_access_type: containerAccess,
     name: bucketName,
     storage_account_name: accountAttrs['name'],
   };
@@ -103,6 +142,15 @@ function translateToAzure(ctx: TranslationContext): EngineResult {
   ];
 
   const findings = collectUnmappedAttrs(resource.id, attrs, MAPPED_KEYS);
+
+  // Behavioral findings
+  if (sanitized) findings.push(createFinding(resource.id, 'info', 'S3_NAME_SANITIZED', `Storage account name sanitized from '${bucketName}' to '${accountName}'`));
+  findings.push(...aclFindings);
+  if (attrs['website']) findings.push(createFinding(resource.id, 'warning', 'S3_WEBSITE_HOSTING', 'S3 static website hosting maps to Azure Static Web Apps or blob $web container — manual configuration required'));
+  if (attrs['object_lock_configuration']) findings.push(createFinding(resource.id, 'warning', 'S3_OBJECT_LOCK_UNSUPPORTED', 'S3 Object Lock has no direct Azure equivalent — use Azure Immutable Blob Storage'));
+  if (attrs['request_payer'] === 'Requester') findings.push(createFinding(resource.id, 'info', 'S3_REQUESTER_PAYS', 'Requester Pays has no equivalent on Azure'));
+  if (replicationConfig) findings.push(createFinding(resource.id, 'info', 'S3_REPLICATION_PARTIAL', 'S3 replication mapped to GRS — cross-region rules not individually translated'));
+  if (encryption) findings.push(createFinding(resource.id, 'warning', 'S3_ENCRYPTION_KMS', 'Customer-managed KMS key detected — verify Azure Key Vault mapping'));
 
   return { translated, findings };
 }
@@ -201,6 +249,25 @@ function translateToGcp(ctx: TranslationContext): EngineResult {
     gcpAttrs['labels'] = transformTags('gcp', tags);
   }
 
+  // Website hosting
+  const website = attrs['website'] as Record<string, unknown> | undefined;
+  if (website) {
+    gcpAttrs['website'] = {
+      main_page_suffix: website['index_document'] ?? 'index.html',
+      not_found_page: website['error_document'] ?? '404.html',
+    };
+  }
+
+  // Requester pays
+  if (attrs['request_payer'] === 'Requester') {
+    gcpAttrs['requester_pays'] = true;
+  }
+
+  // Replication config (for findings)
+  const replicationConfig = attrs['replication_configuration'] as
+    | Record<string, unknown>
+    | undefined;
+
   const translated: TranslatedResource[] = [
     {
       targetType: 'google_storage_bucket',
@@ -212,6 +279,19 @@ function translateToGcp(ctx: TranslationContext): EngineResult {
   ];
 
   const findings = collectUnmappedAttrs(resource.id, attrs, MAPPED_KEYS);
+
+  // ACL findings for GCP
+  const acl = attrs['acl'] as string | undefined;
+  if (acl && acl !== 'private') {
+    findings.push(createFinding(resource.id, 'info', 'S3_ACL_GCP_IAM', `S3 ACL '${acl}' maps to GCP IAM policies — manual IAM binding required`));
+  }
+
+  // Behavioral findings
+  if (attrs['website']) findings.push(createFinding(resource.id, 'warning', 'S3_WEBSITE_HOSTING', 'S3 static website hosting maps to GCP website configuration — verify main_page_suffix and not_found_page'));
+  if (attrs['object_lock_configuration']) findings.push(createFinding(resource.id, 'warning', 'S3_OBJECT_LOCK_UNSUPPORTED', 'S3 Object Lock has no direct GCP equivalent — use GCP retention policies'));
+  if (attrs['request_payer'] === 'Requester') findings.push(createFinding(resource.id, 'info', 'S3_REQUESTER_PAYS', 'Requester Pays mapped to GCP requester_pays'));
+  if (replicationConfig) findings.push(createFinding(resource.id, 'info', 'S3_REPLICATION_PARTIAL', 'S3 replication has no direct GCP equivalent — consider GCP dual/multi-region buckets'));
+  if (encryption) findings.push(createFinding(resource.id, 'warning', 'S3_ENCRYPTION_KMS', 'Customer-managed KMS key detected — verify GCP Cloud KMS mapping'));
 
   return { translated, findings };
 }

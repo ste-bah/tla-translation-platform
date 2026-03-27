@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildConfidenceReport,
+  type ConfidenceBreakdown,
   type ConfidenceReport,
   type ResourceConfidence,
 } from '../../src/compiler/confidence-report.js';
@@ -252,5 +253,167 @@ describe('buildConfidenceReport', () => {
     const report = buildConfidenceReport(result);
 
     expect(report.totalResources).toBe(3);
+  });
+
+  // -----------------------------------------------------------------------
+  // Confidence breakdown tests
+  // -----------------------------------------------------------------------
+
+  it('includes breakdown with mapping, topology, policy, translationPath', () => {
+    const entry = makeEntry({ sourceId: 'r1', confidence: 0.85 });
+    const result = makeResult([entry]);
+    const report = buildConfidenceReport(result);
+
+    const bd = report.resources[0].breakdown;
+    expect(bd).toBeDefined();
+    expect(bd.mapping).toBe(0.85);
+    expect(bd.topology).toBe(1.0);
+    expect(bd.policy).toBe(1.0);
+    expect(bd.translationPath).toBe(1.0);
+  });
+
+  it('topology factor reduced by TOPOLOGY_ findings', () => {
+    const entry = makeEntry({ sourceId: 'r1', confidence: 0.9 });
+    const findings: TranslationFinding[] = [
+      makeFinding({ resourceId: 'r1', severity: 'warning', code: 'TOPOLOGY_ORPHAN', message: 'Orphaned subnet' }),
+      makeFinding({ resourceId: 'r1', severity: 'warning', code: 'TOPOLOGY_LOOP', message: 'Loop detected' }),
+    ];
+    const result = makeResult([entry], findings);
+    const report = buildConfidenceReport(result);
+
+    // 1.0 - 2 * 0.15 = 0.7
+    expect(report.resources[0].breakdown.topology).toBeCloseTo(0.7, 5);
+    expect(report.resources[0].factors).toContain('Topology issues detected (0.7x)');
+  });
+
+  it('topology factor floors at 0.5', () => {
+    const entry = makeEntry({ sourceId: 'r1', confidence: 0.9 });
+    const findings: TranslationFinding[] = Array.from({ length: 10 }, (_, i) =>
+      makeFinding({ resourceId: 'r1', severity: 'info', code: `TOPOLOGY_${i}`, message: `Issue ${i}` }),
+    );
+    const result = makeResult([entry], findings);
+    const report = buildConfidenceReport(result);
+
+    expect(report.resources[0].breakdown.topology).toBe(0.5);
+  });
+
+  it('policy factor reduced by blocker and warning findings', () => {
+    const entry = makeEntry({
+      sourceId: 'r1',
+      confidence: 0.8,
+      findings: [
+        makeFinding({ severity: 'blocker', code: 'BLK_1', message: 'Blocked' }),
+        makeFinding({ severity: 'warning', code: 'WARN_1', message: 'Warn 1' }),
+        makeFinding({ severity: 'warning', code: 'WARN_2', message: 'Warn 2' }),
+      ],
+    });
+    const result = makeResult([entry]);
+    const report = buildConfidenceReport(result);
+
+    // 1.0 - 1*0.5 - 2*0.1 = 0.3
+    expect(report.resources[0].breakdown.policy).toBeCloseTo(0.3, 5);
+  });
+
+  it('policy factor floors at 0', () => {
+    const entry = makeEntry({
+      sourceId: 'r1',
+      confidence: 0.2,
+      findings: [
+        makeFinding({ severity: 'blocker', code: 'BLK_1', message: 'a' }),
+        makeFinding({ severity: 'blocker', code: 'BLK_2', message: 'b' }),
+        makeFinding({ severity: 'blocker', code: 'BLK_3', message: 'c' }),
+      ],
+    });
+    const result = makeResult([entry]);
+    const report = buildConfidenceReport(result);
+
+    expect(report.resources[0].breakdown.policy).toBe(0);
+  });
+
+  it('translationPath factor is 0.6 for generic-fallback', () => {
+    const entry = makeEntry({
+      sourceId: 'r1',
+      confidence: 0.7,
+      targetResources: [{
+        targetType: 'azurerm_resource',
+        targetName: 'r1',
+        attributes: {},
+        sourceId: 'r1',
+        traceability: {
+          sourceId: 'r1',
+          sourceType: 'aws_instance',
+          registryEntryId: null,
+          mappingType: 'direct',
+          confidence: 0.7,
+          engineUsed: 'direct',
+          translationPath: 'generic-fallback',
+        },
+      }],
+    });
+    const result = makeResult([entry]);
+    const report = buildConfidenceReport(result);
+
+    expect(report.resources[0].breakdown.translationPath).toBe(0.6);
+    expect(report.resources[0].factors).toContain('Translation via generic fallback (0.6x)');
+  });
+
+  it('translationPath factor is 0.3 for advisory', () => {
+    const entry = makeEntry({
+      sourceId: 'r1',
+      confidence: 0.3,
+      status: 'advisory',
+      targetResources: [{
+        targetType: 'manual_resource',
+        targetName: 'r1',
+        attributes: {},
+        sourceId: 'r1',
+        traceability: {
+          sourceId: 'r1',
+          sourceType: 'aws_dynamodb_table',
+          registryEntryId: null,
+          mappingType: 'none',
+          confidence: 0.3,
+          engineUsed: 'advisory',
+          translationPath: 'advisory',
+        },
+      }],
+    });
+    const result = makeResult([entry]);
+    const report = buildConfidenceReport(result);
+
+    expect(report.resources[0].breakdown.translationPath).toBe(0.3);
+    expect(report.resources[0].factors).toContain('Translation via generic fallback (0.3x)');
+  });
+
+  it('overallBreakdown averages sub-components', () => {
+    const entry1 = makeEntry({ sourceId: 'a', confidence: 0.8 });
+    const entry2 = makeEntry({
+      sourceId: 'b',
+      confidence: 0.6,
+      findings: [
+        makeFinding({ severity: 'blocker', code: 'BLK_1', message: 'blocked' }),
+      ],
+    });
+    const findings: TranslationFinding[] = [
+      makeFinding({ resourceId: 'b', severity: 'info', code: 'TOPOLOGY_X', message: 'Topo issue' }),
+    ];
+    const result = makeResult([entry1, entry2], findings);
+    const report = buildConfidenceReport(result);
+
+    expect(report.overallBreakdown).toBeDefined();
+    // mapping: avg(0.8, 0.6) = 0.7
+    expect(report.overallBreakdown!.avgMapping).toBeCloseTo(0.7, 5);
+    // topology: avg(1.0, 0.85) = 0.925
+    expect(report.overallBreakdown!.avgTopology).toBeCloseTo(0.925, 5);
+    // policy: avg(1.0, 0.5) = 0.75
+    expect(report.overallBreakdown!.avgPolicy).toBeCloseTo(0.75, 5);
+    // translationPath: avg(1.0, 1.0) = 1.0
+    expect(report.overallBreakdown!.avgTranslationPath).toBeCloseTo(1.0, 5);
+  });
+
+  it('overallBreakdown is undefined for empty entries', () => {
+    const result = makeResult([], []);
+    const report = buildConfidenceReport(result);
+    expect(report.overallBreakdown).toBeUndefined();
   });
 });

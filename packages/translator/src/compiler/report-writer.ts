@@ -203,7 +203,11 @@ function formatResourceLine(entry: ManifestEntry): string {
     .map((r) => `${r.targetType}.${r.targetName}`)
     .join(', ');
   const conf = entry.confidence.toFixed(2);
-  return `- ${entry.sourceType}.${entry.sourceId} \u2192 ${targetNames} (confidence: ${conf})`;
+  const hasFallback = entry.targetResources.some(
+    (r) => r.traceability.translationPath === 'generic-fallback',
+  );
+  const suffix = hasFallback ? ' (generic fallback)' : '';
+  return `- ${entry.sourceType}.${entry.sourceId} \u2192 ${targetNames} (confidence: ${conf})${suffix}`;
 }
 
 function formatFindingLine(f: TranslationFinding): string {

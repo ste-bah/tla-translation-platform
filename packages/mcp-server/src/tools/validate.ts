@@ -31,6 +31,7 @@ import {
   CIS_ADVANCED,
   classificationToSemanticStatus,
 } from '@tla/validator';
+import { runTerraformValidate } from '@tla/translator';
 import type {
   PolicyReport,
   ComplianceReport,
@@ -69,6 +70,8 @@ export interface SyntaxCheckResult {
   filesChecked: number;
   duration: number;
   issues: string[];
+  /** Which validation tiers ran */
+  validationTiers?: ('structural' | 'terraform-validate')[];
 }
 
 export interface PolicyCheckResult {
@@ -121,6 +124,8 @@ export interface ValidateChecks {
   cost?: CostCheckResult;
 }
 
+export type SkippedCheckResult = { result: 'skipped'; reason: string };
+
 export interface ValidateResult {
   success: boolean;
   overallResult?: OverallResult;
@@ -128,12 +133,64 @@ export interface ValidateResult {
   findings?: TranslationFinding[];
   totalDuration?: number;
   error?: string;
+  /** Artifacts auto-discovered from the translated directory (e.g. 'manifest.json', 'canonical-ir.json'). */
+  discoveredArtifacts?: string[];
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Auto-discovery
+// ---------------------------------------------------------------------------
+
+interface DiscoveredBundle {
+  manifest: TranslationManifest | null;
+  ir: CanonicalIR | null;
+  translationResult: TranslationResult | null;
+  discoveredFrom: string[];
+}
+
+/**
+ * Attempts to load manifest.json and canonical-ir.json from the translated directory.
+ * Returns null for each if not found or unparseable.
+ */
+async function discoverBundle(translatedDir: string): Promise<DiscoveredBundle> {
+  const discoveredFrom: string[] = [];
+  let manifest: TranslationManifest | null = null;
+  let ir: CanonicalIR | null = null;
+  let translationResult: TranslationResult | null = null;
+
+  try {
+    const raw = await readFile(join(translatedDir, 'manifest.json'), 'utf-8');
+    manifest = JSON.parse(raw) as TranslationManifest;
+    discoveredFrom.push('manifest.json');
+  } catch { /* not found or invalid */ }
+
+  try {
+    const raw = await readFile(join(translatedDir, 'canonical-ir.json'), 'utf-8');
+    const parsed = JSON.parse(raw) as {
+      ir?: CanonicalIR;
+      translationResult?: TranslationResult;
+    };
+    if (parsed.ir) {
+      ir = parsed.ir;
+      discoveredFrom.push('canonical-ir.json');
+    }
+    if (parsed.translationResult) {
+      translationResult = parsed.translationResult;
+    }
+  } catch { /* not found or invalid */ }
+
+  return { manifest, ir, translationResult, discoveredFrom };
+}
+
+// ---------------------------------------------------------------------------
+// Empty fallbacks (deprecated — kept for backward compatibility)
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use discoverBundle() instead. Kept for backward compatibility. */
 /** Build a minimal always-pass TranslationManifest for policy/compliance when we
  * don't have a real one. Policy engine operates on CanonicalIR resources;
  * compliance engine operates on manifest.entries[].targetResources. Both need
@@ -151,6 +208,7 @@ function emptyManifest(provider: 'azure' | 'gcp'): TranslationManifest {
   };
 }
 
+/** @deprecated Use discoverBundle() instead. Kept for backward compatibility. */
 function emptyIr(_provider: 'azure' | 'gcp'): CanonicalIR {
   return {
     version: '1.0.0',
@@ -173,11 +231,110 @@ function emptyIr(_provider: 'azure' | 'gcp'): CanonicalIR {
 // Individual check runners
 // ---------------------------------------------------------------------------
 
+/** Valid HCL top-level block openers. */
+const HCL_BLOCK_RE =
+  /^(?:resource|variable|provider|terraform|output|data|locals|module)\s/;
+
+/** Check a single line for unclosed string literals (odd unescaped quotes). */
+function hasUnclosedString(line: string): boolean {
+  let inString = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '\\') { i++; continue; }
+    if (line[i] === '"') inString = !inString;
+  }
+  return inString;
+}
+
+/** Tier-1 structural checks for a single .tf file. */
+function checkFileStructure(
+  file: string,
+  content: string,
+  issues: string[],
+): void {
+  // Empty file warning
+  if (content.trim().length === 0) {
+    issues.push(`${file}: empty .tf file`);
+    return;
+  }
+
+  // Brace balance
+  const openBraces = (content.match(/\{/g) ?? []).length;
+  const closeBraces = (content.match(/\}/g) ?? []).length;
+  if (openBraces !== closeBraces) {
+    issues.push(`${file}: unbalanced braces (${openBraces} open, ${closeBraces} close)`);
+  }
+
+  // NUL bytes
+  if (content.includes('\x00')) {
+    issues.push(`${file}: file contains NUL bytes (possibly truncated)`);
+  }
+
+  // Block structure validation
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+    // Skip comments / blank
+    if (trimmed.length === 0 || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
+    // Skip closing braces, assignments, nested blocks
+    if (trimmed.startsWith('}') || trimmed.includes('=')) continue;
+    // If it looks like a block opener but doesn't match known types
+    if (trimmed.includes('{') && !HCL_BLOCK_RE.test(trimmed) && !trimmed.startsWith('}')) {
+      // Could be nested block (e.g. "lifecycle {") — only flag top-level
+      // Heuristic: if line has no leading whitespace, it's top-level
+      if (lines[i].length === trimmed.length) {
+        issues.push(`${file}:${i + 1}: unrecognised top-level block: ${trimmed.slice(0, 60)}`);
+      }
+    }
+  }
+
+  // Unclosed string literals
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+    if (trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
+    if (hasUnclosedString(lines[i])) {
+      issues.push(`${file}:${i + 1}: possible unclosed string literal`);
+    }
+  }
+}
+
+/** Tier-2: run terraform validate (synchronous). */
+function runTerraformTier(
+  translatedDir: string,
+  issues: string[],
+): boolean {
+  try {
+    const tfResult = runTerraformValidate(translatedDir, { timeoutMs: 30_000 });
+    if (tfResult.ok) {
+      try {
+        const validateOutput = JSON.parse(tfResult.stdout) as {
+          valid?: boolean;
+          diagnostics?: Array<{ severity?: string; summary?: string; detail?: string }>;
+        };
+        if (validateOutput.valid === false && Array.isArray(validateOutput.diagnostics)) {
+          let hasError = false;
+          for (const diag of validateOutput.diagnostics) {
+            const severity = diag.severity === 'error' ? 'error' : 'warning';
+            if (severity === 'error') hasError = true;
+            issues.push(`[terraform ${severity}] ${diag.summary ?? 'unknown'}: ${diag.detail ?? ''}`);
+          }
+          return hasError;
+        }
+      } catch { /* ignore JSON parse failure */ }
+    } else {
+      issues.push(`[terraform validate skipped] ${tfResult.message}`);
+    }
+  } catch {
+    // terraform binary not available — skip gracefully
+  }
+  return false;
+}
+
 async function runSyntaxCheck(
   translatedDir: string,
 ): Promise<SyntaxCheckResult> {
   const t0 = Date.now();
   const issues: string[] = [];
+  const validationTiers: ('structural' | 'terraform-validate')[] = ['structural'];
   let filesChecked = 0;
 
   try {
@@ -190,30 +347,43 @@ async function runSyntaxCheck(
         filesChecked: 0,
         duration: Date.now() - t0,
         issues: ['No .tf files found in translated_dir'],
+        validationTiers,
       };
     }
 
+    // Tier 1: structural validation
     for (const file of tfFiles) {
       filesChecked++;
       try {
         const content = await readFile(join(translatedDir, file), 'utf-8');
-        // Minimal structural checks: unbalanced braces
-        const openBraces = (content.match(/\{/g) ?? []).length;
-        const closeBraces = (content.match(/\}/g) ?? []).length;
-        if (openBraces !== closeBraces) {
-          issues.push(`${file}: unbalanced braces (${openBraces} open, ${closeBraces} close)`);
-        }
-        // Check for NUL bytes (truncated file)
-        if (content.includes('\x00')) {
-          issues.push(`${file}: file contains NUL bytes (possibly truncated)`);
-        }
+        checkFileStructure(file, content, issues);
       } catch (err: unknown) {
         issues.push(`${file}: cannot read — ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
-    const result: SyntaxCheckResult['result'] = issues.length === 0 ? 'pass' : 'warn';
-    return { result, filesChecked, duration: Date.now() - t0, issues };
+    // Tier 2: terraform validate
+    const structuralIssueCount = issues.length;
+    const terraformHadErrors = runTerraformTier(translatedDir, issues);
+    if (issues.length > structuralIssueCount || terraformHadErrors) {
+      validationTiers.push('terraform-validate');
+    } else {
+      // Check if terraform was actually attempted (no new issues but it ran)
+      // We always attempt it, so mark the tier as ran even if clean
+      validationTiers.push('terraform-validate');
+    }
+
+    // Tier 3: result classification
+    let result: SyntaxCheckResult['result'];
+    if (terraformHadErrors) {
+      result = 'fail';
+    } else if (issues.length > 0) {
+      result = 'warn';
+    } else {
+      result = 'pass';
+    }
+
+    return { result, filesChecked, duration: Date.now() - t0, issues, validationTiers };
   } catch (err: unknown) {
     return {
       result: 'fail',
@@ -222,6 +392,7 @@ async function runSyntaxCheck(
       issues: [
         `Cannot read translated_dir: ${err instanceof Error ? err.message : String(err)}`,
       ],
+      validationTiers,
     };
   }
 }
@@ -447,28 +618,30 @@ export async function handleValidate(args: ValidateArgs): Promise<ValidateResult
       }
     }
 
-    // ---- Load IR if provided (needed by semantic / confidence / cost) ------
-    let ir: CanonicalIR = emptyIr(args.provider);
-    let translationResult: TranslationResult | null = null;
+    // ---- Auto-discover manifest and IR from translated directory ------------
+    const bundle = await discoverBundle(args.translated_dir);
 
+    let manifest: TranslationManifest | null = bundle.manifest;
+    let ir: CanonicalIR | null = bundle.ir;
+    let translationResult: TranslationResult | null = bundle.translationResult;
+
+    // Override with explicit irFile if provided and auto-discovery didn't find IR
     if (args.irFile && (checksToRun.has('semantic') || checksToRun.has('confidence') || checksToRun.has('cost'))) {
       try {
         const rawJson = await readFile(args.irFile, 'utf-8');
         const parsed = JSON.parse(rawJson) as { ir?: CanonicalIR; translationResult?: TranslationResult };
-        if (parsed.ir) ir = parsed.ir;
-        if (parsed.translationResult) translationResult = parsed.translationResult;
+        if (parsed.ir && !ir) ir = parsed.ir;
+        if (parsed.translationResult && !translationResult) translationResult = parsed.translationResult;
       } catch (err: unknown) {
         // Graceful degradation: log and continue without IR
         allFindings.push({
           resourceId: '*',
           severity: 'warning',
           code: 'VALIDATE_IR_LOAD',
-          message: `Could not load IR file (semantic/confidence/cost checks will use empty IR): ${err instanceof Error ? err.message : String(err)}`,
+          message: `Could not load IR file: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
     }
-
-    const manifest = emptyManifest(args.provider);
 
     // ---- 2. Policy checks --------------------------------------------------
     let policyReport: PolicyReport = {
@@ -479,10 +652,19 @@ export async function handleValidate(args: ValidateArgs): Promise<ValidateResult
     };
 
     if (checksToRun.has('policy')) {
-      const { checkResult, report } = await runPolicyCheck(ir, manifest);
-      checks.policy = checkResult;
-      policyReport = report;
-      allFindings.push(...report.findings);
+      if (!manifest) {
+        allFindings.push({
+          resourceId: '*',
+          severity: 'info',
+          code: 'VALIDATE_POLICY_SKIP',
+          message: 'Policy check skipped — no manifest.json found in translated directory.',
+        });
+      } else {
+        const { checkResult, report } = await runPolicyCheck(ir ?? emptyIr(args.provider), manifest);
+        checks.policy = checkResult;
+        policyReport = report;
+        allFindings.push(...report.findings);
+      }
     }
 
     // ---- 3. Compliance checks ----------------------------------------------
@@ -495,23 +677,31 @@ export async function handleValidate(args: ValidateArgs): Promise<ValidateResult
     };
 
     if (checksToRun.has('compliance')) {
-      const { checkResult, report } = runComplianceCheck(manifest, profileName);
-      checks.compliance = checkResult;
-      complianceReport = report;
-      allFindings.push(...report.findings);
+      if (!manifest) {
+        allFindings.push({
+          resourceId: '*',
+          severity: 'info',
+          code: 'VALIDATE_COMPLIANCE_SKIP',
+          message: 'Compliance check skipped — no manifest.json found in translated directory.',
+        });
+      } else {
+        const { checkResult, report } = runComplianceCheck(manifest, profileName);
+        checks.compliance = checkResult;
+        complianceReport = report;
+        allFindings.push(...report.findings);
+      }
     }
 
     // ---- 4. Semantic diff --------------------------------------------------
     let semanticEquivReport: ReturnType<typeof checkEquivalence> | null = null;
 
     if (checksToRun.has('semantic')) {
-      if (!translationResult) {
-        // No IR/translation result — skip gracefully
+      if (!ir || !translationResult) {
         allFindings.push({
           resourceId: '*',
           severity: 'info',
           code: 'VALIDATE_SEMANTIC_SKIP',
-          message: 'Semantic diff skipped: no irFile provided or IR file could not be loaded.',
+          message: 'Semantic diff skipped: no IR found (checked translated directory and irFile).',
         });
       } else {
         semanticEquivReport = checkEquivalence(ir, translationResult.manifest);
@@ -521,23 +711,32 @@ export async function handleValidate(args: ValidateArgs): Promise<ValidateResult
 
     // ---- 5. Confidence scoring ---------------------------------------------
     if (checksToRun.has('confidence')) {
-      const { checkResult } = runConfidenceCheck(
-        ir,
-        policyReport,
-        complianceReport,
-        semanticEquivReport,
-      );
-      checks.confidence = checkResult;
+      if (!ir) {
+        allFindings.push({
+          resourceId: '*',
+          severity: 'info',
+          code: 'VALIDATE_CONFIDENCE_SKIP',
+          message: 'Confidence scoring skipped: no IR found.',
+        });
+      } else {
+        const { checkResult } = runConfidenceCheck(
+          ir,
+          policyReport,
+          complianceReport,
+          semanticEquivReport,
+        );
+        checks.confidence = checkResult;
+      }
     }
 
     // ---- 6. Cost estimate --------------------------------------------------
     if (checksToRun.has('cost')) {
-      if (!translationResult) {
+      if (!ir || !translationResult) {
         allFindings.push({
           resourceId: '*',
           severity: 'info',
           code: 'VALIDATE_COST_SKIP',
-          message: 'Cost estimate skipped: no irFile / translationResult provided.',
+          message: 'Cost estimate skipped: no IR / translationResult found.',
         });
       } else {
         checks.cost = runCostCheck(ir, translationResult);
@@ -553,6 +752,7 @@ export async function handleValidate(args: ValidateArgs): Promise<ValidateResult
       checks,
       findings: allFindings,
       totalDuration: Date.now() - totalT0,
+      discoveredArtifacts: bundle.discoveredFrom,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

@@ -38,6 +38,7 @@ export const TraceabilityRecordSchema = z.object({
   mappingType: MappingType,
   confidence: z.number().min(0).max(1),
   engineUsed: z.string().min(1),
+  translationPath: z.enum(['specialized', 'generic-fallback', 'advisory']).optional().default('specialized'),
 });
 export type TraceabilityRecord = z.infer<typeof TraceabilityRecordSchema>;
 

@@ -22,6 +22,7 @@ import { handleEquivalenceLookup } from './equivalence-lookup.js';
 import { handleValidate } from './validate.js';
 import { handleMigrateState } from './migrate-state.js';
 import { handleAssess } from './assess.js';
+import { buildCoverageMatrix } from '@tla/translator';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -300,11 +301,13 @@ export function registerTools(
       if (!result.ok) return errorResponse(result.error);
 
       const completeness = result.api.getCompleteness();
+      const allEntries = result.api.search({});
+      const handlerCoverage = buildCoverageMatrix(allEntries);
       return {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify(completeness),
+            text: JSON.stringify({ completeness, handlerCoverage }),
           },
         ],
       };

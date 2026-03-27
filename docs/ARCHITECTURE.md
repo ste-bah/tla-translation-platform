@@ -472,6 +472,29 @@ flowchart TD
 | `iamAdminPolicy` | No admin-level IAM policies | blocker |
 | `iamMfaRequired` | MFA enforcement on IAM | major |
 
+### Validation Limitations and Honest Scope
+
+The validation pipeline has different depths depending on available artifacts and tooling:
+
+| Check | What It Actually Validates | When It Skips | Known Limitations |
+|-------|---------------------------|---------------|-------------------|
+| **Syntax** | HCL block structure (regex), brace balance, NUL bytes, empty files. Optionally runs `terraform validate` when binary is available. | Never — always runs at minimum structural level | Without Terraform binary, cannot detect provider-specific schema errors (e.g., invalid attribute names) |
+| **Policy** | Built-in rules: encryption at rest, encryption in transit, public storage, unrestricted ingress. Evaluates against actual manifest resources. | Skips when `manifest.json` is not found in translated directory | Only evaluates built-in rules; OPA policy support is stubbed but not integrated |
+| **Compliance** | CIS-Basic (5 rules) or CIS-Advanced (8 rules) against manifest target resources. Checks encryption, network access, logging, IAM. | Skips when `manifest.json` is not found | Rules are pattern-based, not runtime-validated against actual cloud provider state |
+| **Semantic Diff** | Compares source IR resources against translated output for presence, attribute preservation, intent matching, and reference integrity. | Skips when `canonical-ir.json` is not found | Relies on IR completeness; modules with opaque sources may have incomplete attribute data |
+| **Confidence** | Per-resource, per-family, and stack-level scoring with sub-component breakdown (mapping, topology, policy, translation path). | Skips when `canonical-ir.json` is not found | Scores are heuristic — confidence 0.85 does not guarantee 85% functional equivalence |
+| **Cost** | Estimates monthly cost delta using static pricing tables (AWS, Azure, GCP). | Skips when `canonical-ir.json` is not found | Pricing is approximate and static; does not account for reserved instances, spot pricing, or volume discounts |
+
+**Auto-discovery**: The `validate` tool automatically loads `manifest.json` and `canonical-ir.json` from the translated output directory. When these files exist (they are written by both CLI and MCP translate), all six checks can run. When they are missing, affected checks are skipped with explicit findings (e.g., `VALIDATE_POLICY_SKIP`).
+
+**Confidence scoring breakdown** (new in Phase 16):
+
+Each resource receives four sub-scores:
+- **Mapping** (0-1): base confidence from registry entry
+- **Topology** (0.5-1): reduced by 0.15 per topology-level finding (floor 0.5)
+- **Policy** (0-1): reduced by 0.5 per blocker, 0.1 per warning (floor 0)
+- **Translation Path** (0.3-1): 1.0 for specialized handlers, 0.6 for generic fallback, 0.3 for advisory
+
 ---
 
 ## 8. Confidence Scoring

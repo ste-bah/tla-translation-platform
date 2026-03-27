@@ -500,10 +500,29 @@ export function translateRds(ctx: TranslationContext): EngineResult {
     };
   }
 
-  if (ctx.targetProvider === 'azure') {
-    return isSqlServer(engine)
-      ? translateSqlServerToAzure(ctx)
-      : translateFlexibleServerToAzure(ctx);
+  // Unencrypted storage warning (skip for engines where TDE is default, e.g. Azure MSSQL)
+  const storageEncrypted = attrs['storage_encrypted'];
+  const encryptionWarnings: ReturnType<typeof createFinding>[] = [];
+  if (storageEncrypted !== true) {
+    encryptionWarnings.push(
+      createFinding(
+        ctx.resource.id,
+        'warning',
+        'RDS_NO_ENCRYPTION',
+        'Database storage encryption is not enabled — review encryption requirements',
+      ),
+    );
   }
-  return translateToGcp(ctx);
+
+  const result = ctx.targetProvider === 'azure'
+    ? isSqlServer(engine)
+      ? translateSqlServerToAzure(ctx)
+      : translateFlexibleServerToAzure(ctx)
+    : translateToGcp(ctx);
+
+  if (encryptionWarnings.length > 0) {
+    result.findings.push(...encryptionWarnings);
+  }
+
+  return result;
 }
