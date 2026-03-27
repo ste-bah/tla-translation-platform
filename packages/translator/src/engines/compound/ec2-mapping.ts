@@ -1,6 +1,6 @@
 /** AWS EC2 -> Azure VM / GCP Compute Instance (compound 1:N expansion). */
 
-import type { TranslatedResource } from '@tla/shared';
+import type { TranslatedResource, TranslationFinding } from '@tla/shared';
 import type { TranslationContext, EngineResult } from '../mapping-engine.js';
 import {
   transformTags,
@@ -11,8 +11,8 @@ import {
   emitBehavioralGapFindings,
 } from '../direct/attribute-transformer.js';
 
-/** Shorthand for the finding tuple type used throughout this module. */
-type Finding = Finding;
+/** Shorthand for the finding type used throughout this module. */
+type Finding = TranslationFinding;
 type SizeEntry = { azure: string; gcp: string };
 
 // Keys we explicitly handle during mapping
