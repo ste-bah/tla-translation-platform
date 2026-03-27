@@ -488,11 +488,17 @@ function runSemanticCheck(
 
 function runConfidenceCheck(
   ir: CanonicalIR,
+  manifest: TranslationManifest | null,
   policyReport: PolicyReport,
   complianceReport: ComplianceReport,
   semanticReport: ReturnType<typeof checkEquivalence> | null,
 ): { checkResult: ConfidenceCheckResult; report: ConfidenceReport } {
   const t0 = Date.now();
+
+  // Build manifest lookup for real registry-derived confidence
+  const manifestBySourceId = new Map(
+    (manifest?.entries ?? []).map((e) => [e.sourceId, e]),
+  );
 
   // Build per-resource confidence inputs from IR resources
   const resources: ResourceConfidenceInput[] = ir.resources.map((r) => {
@@ -512,10 +518,14 @@ function runConfidenceCheck(
 
     const reviewCritical = ['security', 'identity', 'networking'].includes(r.category);
 
+    // Use real manifest confidence (from registry) when available; 0.5 = unknown
+    const manifestEntry = manifestBySourceId.get(r.id);
+    const registryConfidence = manifestEntry?.confidence ?? 0.5;
+
     return {
       resourceId: r.id,
       serviceFamily: r.category as AwsServiceFamily,
-      registryConfidence: 0.8, // default when no registry data available
+      registryConfidence,
       validationStatus: 'clean', // syntax check passed to reach here
       semanticStatus,
       policyWarnings,
@@ -721,6 +731,7 @@ export async function handleValidate(args: ValidateArgs): Promise<ValidateResult
       } else {
         const { checkResult } = runConfidenceCheck(
           ir,
+          manifest,
           policyReport,
           complianceReport,
           semanticEquivReport,
