@@ -1,6 +1,6 @@
 # TLA Translation Platform -- Architecture Deep Dive
 
-> **Version**: 0.1.0 | **Last Updated**: 2026-03-26 | **Node**: >=22.0.0 | **Go**: 1.21+
+> **Version**: 0.1.0 | **Last Updated**: 2026-03-26 | **Node**: >=22.0.0 | **Go**: 1.22+
 
 ---
 
@@ -98,7 +98,7 @@ flowchart LR
 
 ### Translation Output Artifacts
 
-Every translation run produces up to six output files:
+Every translation run produces the following output artifacts:
 
 | File | Purpose |
 |------|---------|
@@ -312,7 +312,7 @@ flowchart TD
 | Engine | Type | Band | Ratio | Description | Example Resources |
 |--------|------|------|-------|-------------|-------------------|
 | **Direct** | `direct` | P1 | 1:1 | Straightforward attribute mapping. Region/SKU lookups via `REGION_MAP` and `NODE_TYPE_SKU_MAP`. | S3, ECR, ElastiCache Redis, Route53 zones |
-| **Parametric** | `parametric` | P2 | 1:1 | Attribute transformation with cross-resource lookups. Reads sibling resources for VPC/subnet references. | VPC, Subnet, NAT Gateway, KMS, Secrets Manager, EKS, Direct Connect, VPN |
+| **Parametric** | `parametric` | P2 | 1:1 | Attribute transformation with cross-resource lookups. Reads sibling resources for VPC/subnet references. | NAT Gateway, KMS, Secrets Manager, EKS, Direct Connect, VPN |
 | **Compound** | `compound` | N1 | 1:N | One AWS resource expands to multiple target resources. Internal Terraform interpolation refs between outputs. | EC2 (VM+NIC+Disk), ASG (VMSS/MIG), ALB/NLB (AppGW+PIP / LB+PIP), RDS (FlexServer+DB), API Gateway (APIM+API) |
 | **Structural** | `structural` | N1 | M:N | Topology reshaping preserving security/behavioral intent. Intent-driven supplementary analysis. BLOCKER gate on rule broadening. | Security Groups, Lambda (trigger detection), ECS (launch type), SQS/SNS (FIFO), CloudWatch, WAF, Step Functions |
 | **Advisory** | `none` | M1 | 0:0 | No automated translation. Generates manual task findings with migration guidance. | DynamoDB (pattern detection), IAM, CloudFront, Route53 health checks, ElastiCache Cluster |
@@ -721,7 +721,7 @@ The portable provider introduces `cloud_*` resources -- provider-agnostic Terraf
 %%{init: {"theme": "neutral"}}%%
 flowchart TB
     subgraph "User Configuration"
-        HCL["resource \"cloud_object_storage\" \"data\" {<br/>  name = \"my-bucket\"<br/>  versioning = true<br/>  encryption { algorithm = \"AES256\" }<br/>}"]
+        HCL["resource cloud_object_storage data<br/>name = my-bucket<br/>versioning = true<br/>encryption algorithm = AES256"]
     end
 
     subgraph "TypeScript Compiler"
@@ -794,7 +794,7 @@ flowchart LR
 |-------|-----------|---------|
 | Runtime | Node.js | >= 22.0.0 |
 | Language (TS) | TypeScript | ~5.8.3 |
-| Language (Go) | Go | 1.21+ |
+| Language (Go) | Go | 1.22+ |
 | Schema Validation | Zod | ^3.24.4 |
 | HCL Parsing | @cdktf/hcl2json | ^0.21.0 |
 | Registry Format | YAML | via `yaml` ^2.8.2 |
@@ -816,9 +816,10 @@ output/
   terraform.tf         # Required providers + version constraints
   variables.tf         # Input variables (subscription_id, region, etc.)
   outputs.tf           # Output values
+  canonical-ir.json    # Source Canonical IR (for downstream validation)
   manifest.json        # Translation manifest with per-resource status
-  ir.json              # Source CanonicalIR (when --save-ir is set)
-  remediation.json     # Remediation pack (when gaps exist)
-  backend.tf           # Target backend config (when --migrate-state)
-  rollback.json        # Rollback manifest (when --migrate-state --rollback)
+  translation-report.md # Human-readable summary with findings
+  audit-log.jsonl      # Append-only audit trail
+  confidence-report.json # Per-resource confidence with escalation flags
+  migration-pack.md    # Remediation tasks (when blocked/advisory exist)
 ```

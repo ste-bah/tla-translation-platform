@@ -295,8 +295,8 @@ Provide either `service` (single) or `services` (bulk), not both.
 | `target` | `azure` \| `gcp` | yes | Target cloud provider. |
 | `scope` | `full` \| `stack` | yes | `full` = all resources; `stack` = scoped to module prefixes. |
 | `selectedStacks` | string[] | no | Module name prefixes when scope is `stack`. |
-| `generateBackend` | boolean | yes | Include target-provider backend HCL snippet. |
-| `generateRollback` | boolean | yes | Include rollback manifest with inverse operations. |
+| `generateBackend` | boolean | no | Include target-provider backend HCL snippet (default: false). |
+| `generateRollback` | boolean | no | Include rollback manifest with inverse operations (default: false). |
 
 **Example request:**
 

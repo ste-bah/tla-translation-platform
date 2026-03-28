@@ -222,13 +222,7 @@ The generated `.tf` files in `output_dir` are standard Terraform and can be main
 3. Add the appropriate native provider block (`azurerm` or `google`).
 4. Run `terraform init && terraform plan` against the native code.
 
-The TypeScript compiler also offers a direct eject command:
-
-```bash
-npx tla eject ./portable-config --target azure --output ./native-azure
-```
-
-This generates standard `azurerm` or `google` Terraform that can be maintained independently.
+> **Note:** A dedicated `tla eject` CLI command is not yet implemented. To generate native HCL from portable resources, use the Go provider's `output_dir` attribute — it writes native .tf files during `terraform apply`. Alternatively, use the `emitNativeEquivalent()` function from `@tla/translator` programmatically.
 
 ## Limitations
 

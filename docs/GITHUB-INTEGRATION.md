@@ -94,7 +94,7 @@ For large repositories, translate specific resources or stacks rather than every
 ```bash
 npx tla translate ./terraform --target azure \
   --scope selected \
-  --resources aws_vpc.main,aws_subnet.private,aws_s3_bucket.data
+  --selected aws_vpc.main aws_subnet.private aws_s3_bucket.data
 ```
 
 ### Stack-by-stack migration
@@ -223,15 +223,15 @@ Some AWS services have no direct cloud equivalent or require architectural decis
 
 ---
 
-## Preview Mode
+## Assessment Mode
 
 See what translation will produce without generating any files:
 
 ```bash
-npx tla preview ./terraform --target azure
+npx tla translate ./terraform --target azure --scope assessment
 ```
 
-Preview output includes:
+Assessment output includes:
 - Resource count and mapping type breakdown (direct, parametric, compound, structural, advisory, none)
 - Estimated confidence score per resource
 - Blocker findings that would prevent clean translation

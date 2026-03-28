@@ -162,7 +162,7 @@ Open `azure-output/manifest.json`. It contains:
           "targetName": "main",
           "attributes": {},
           "sourceId": "main",
-          "traceability": { "sourceId": "main", "engine": "structural", "confidence": 0.85 }
+          "traceability": { "sourceId": "main", "sourceType": "aws_vpc", "mappingType": "structural", "confidence": 0.85, "engineUsed": "structural", "translationPath": "specialized" }
         }
       ],
       "confidence": 0.85,
@@ -183,7 +183,7 @@ Key fields:
 
 ## Understanding the Output
 
-The output directory contains five files:
+The output directory contains the following files:
 
 | File | Purpose |
 |------|---------|

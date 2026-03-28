@@ -32,7 +32,7 @@ The TLA platform ingests AWS Terraform HCL configurations and translates them in
 
 The translation engine covers **22 AWS services** across **5 engine types**: direct (1:1 attribute mapping), parametric (cross-resource reference resolution), compound (1:N resource expansion), structural (topology reshaping with intent analysis), and advisory (human-guided migration stubs). Each translated resource carries a confidence score, traceability metadata linking it back to the source, and a manifest of behavioral gaps that require attention.
 
-The platform also includes a **validation suite** (structural + optional Terraform validation, policy evaluation, compliance checking, confidence scoring), an **MCP server** exposing 10 tools for AI agent integration (Claude Code, Cursor, etc.), a **VS Code extension** (scaffolded, build pipeline working), and a **Go Terraform provider** with 3 portable `cloud_*` resources as a proof-of-concept.
+The platform also includes a **validation suite** (structural + optional Terraform validation, policy evaluation, compliance checking, confidence scoring), an **MCP server** exposing 10 tools for AI agent integration (Claude Code, Cursor, etc.), a **VS Code extension** providing cloud-agnostic completions, AWS resource confidence diagnostics, and non-portable pattern warnings, and a **Go Terraform provider** with 3 portable `cloud_*` resources as a proof-of-concept.
 
 ---
 
@@ -103,7 +103,7 @@ npx tla migrate-state --state terraform.tfstate --translated-dir ./azure-output 
 | **@tla/validator** | `packages/validator` | Validation, policy, compliance, cost estimation | `checkEquivalence`, `evaluatePolicies`, `checkCompliance`, `scoreConfidence` |
 | **@tla/mcp-server** | `packages/mcp-server` | MCP server (10 tools) for AI agent integration | `translate`, `equivalence-lookup`, `validate`, `migrate-state` |
 | **@tla/cli** | `packages/cli` | Command-line interface | `tla translate`, `tla validate`, `tla assess`, `tla migrate-state`, `tla validate-registry`, `tla registry-report` |
-| **ide-extension** | `packages/ide-extension` | VS Code extension (scaffolded) | Completions, diagnostics (build pipeline working) |
+| **ide-extension** | `packages/ide-extension` | VS Code extension | Cloud-agnostic completions, confidence diagnostics, portability warnings |
 | **terraform-provider** | `packages/terraform-provider` | Go Terraform provider for portable resources | `cloud_object_storage`, `cloud_container_registry`, `cloud_cache_redis` |
 | **integration-tests** | `packages/integration-tests` | End-to-end test suite | Azure E2E, GCP E2E, edge case fixtures |
 
@@ -138,7 +138,7 @@ flowchart TD
 | Engine | Band | Description | Example Services |
 |--------|------|-------------|-----------------|
 | **Direct** | P1 | 1:1 attribute mapping | S3, ECR, ElastiCache Redis, Route53, VPC Peering |
-| **Parametric** | P2 | Cross-resource reference resolution | VPC, Subnet, NAT Gateway, KMS, Secrets Manager, EKS |
+| **Parametric** | P2 | Cross-resource reference resolution | NAT Gateway, KMS, Secrets Manager, EKS, Direct Connect, VPN |
 | **Compound** | P2 | 1:N resource expansion | EC2 (VM+NIC+Disk), ASG, ALB/NLB, RDS |
 | **Structural** | P2 | Topology reshaping with intent analysis | Security Groups, Lambda, ECS, SQS, SNS, CloudWatch |
 | **Advisory** | M1 | Human-guided migration stubs | DynamoDB, IAM, CloudFront, Route53 Health, ElastiCache Cluster |
@@ -217,7 +217,7 @@ Each AWS resource type falls into one of four translation depth tiers:
 | Direct | S3, ECR, ElastiCache Redis, Route53, VPC Peering |
 | Parametric | NAT GW, KMS, Secrets Manager, EKS, Direct Connect, VPN |
 | Compound | EC2, ASG, ALB/NLB, RDS, API Gateway |
-| Structural | Security Groups, Lambda, ECS, SQS, SNS, CloudWatch, VPC, Subnet, Route Table, IGW, Flow Log, Transit GW, PrivateLink, WAF, Step Functions |
+| Structural | Security Groups, Lambda, ECS, SQS, SNS, CloudWatch, VPC, Subnet, DHCP Options, Route Table, IGW, Flow Log, Transit GW, PrivateLink, WAF, Step Functions |
 | Advisory | DynamoDB, IAM, CloudFront, Route53 Health, ElastiCache Cluster |
 
 Resources NOT in the dispatch tables above will use generic fallback translation when their registry `mapping_type` routes them to an engine without a specialized handler. The `registry-stats` MCP tool includes a `handlerCoverage` section showing the breakdown.
@@ -265,7 +265,7 @@ The resource types below are recognized by the platform. Resources with speciali
 | `aws_lb` (ALB) | `azurerm_application_gateway` | `google_compute_url_map` + `google_compute_backend_service` | N1 | Compound |
 | `aws_lb` (NLB) | `azurerm_lb` | `google_compute_forwarding_rule` | N1 | Compound |
 | `aws_nat_gateway` | `azurerm_nat_gateway` | `google_compute_router_nat` + `google_compute_router` | N1 | Parametric |
-| `aws_route53_zone` / `aws_route53_record` | `azurerm_dns_zone` + `azurerm_dns_a_record` | `google_dns_managed_zone` + `google_dns_record_set` | P2 | Direct |
+| `aws_route53_zone` / `aws_route53_record` | `azurerm_dns_zone` + `azurerm_dns_a_record` | `google_dns_managed_zone` + `google_dns_record_set` | P2 | Direct + Structural |
 | `aws_vpc_peering_connection` | `azurerm_virtual_network_peering` | `google_compute_network_peering` | P2 | Direct |
 | `aws_ec2_transit_gateway` | Azure Virtual WAN / vHub | GCP Network Connectivity Center | N1 | Structural (topology pattern) |
 | `aws_vpc_endpoint` (PrivateLink) | Azure Private Endpoint / Private Link Service | GCP Private Service Connect | N1 | Structural (producer/consumer) |
