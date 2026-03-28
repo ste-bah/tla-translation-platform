@@ -1,6 +1,6 @@
 # AWS Terraform Translation Platform (TLA)
 
-> Translate AWS Terraform to Azure and GCP with full service equivalence registry, validation, and portable authoring.
+> Assisted AWS Terraform migration to Azure and GCP -- analyse, translate, review, and validate.
 
 ![Tests](https://img.shields.io/badge/tests-2500%2B%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -9,13 +9,30 @@
 
 ---
 
-## What It Does
+## What This Tool Can Do Today
 
-The TLA platform ingests AWS Terraform HCL configurations and translates them into native Azure (`azurerm`) and GCP (`google`) Terraform code. It does not produce abstraction layers or wrappers -- every output file is idiomatic, provider-native HCL that you can `terraform plan` and `terraform apply` directly.
+This platform can help migrate existing AWS Terraform code by analysing configurations, translating them into Azure or GCP Terraform, and generating review artefacts such as manifests, confidence reports, audit logs, and migration guidance.
+
+It is best used as an **assisted migration tool**: it can produce a strong first draft, surface blockers and behavioural gaps, and reduce manual migration effort substantially. For complex workloads, engineers should still review and validate the generated output before production use.
+
+In practice, this means the platform is well suited to:
+
+- Assessing AWS Terraform estates
+- Generating initial target-cloud Terraform
+- Identifying translation risks early
+- Accelerating migration workstreams with human oversight
+
+**It should not yet be treated as a fully unattended migration system for broad production cutovers.**
+
+---
+
+## How It Works
+
+The TLA platform ingests AWS Terraform HCL configurations and translates them into native Azure (`azurerm`) and GCP (`google`) Terraform code. Every output file is idiomatic, provider-native HCL that you can `terraform plan` and `terraform apply` directly.
 
 The translation engine covers **22 AWS services** across **5 engine types**: direct (1:1 attribute mapping), parametric (cross-resource reference resolution), compound (1:N resource expansion), structural (topology reshaping with intent analysis), and advisory (human-guided migration stubs). Each translated resource carries a confidence score, traceability metadata linking it back to the source, and a manifest of behavioral gaps that require attention.
 
-Beyond translation, the platform includes a full **validation suite** (semantic diff, policy evaluation, compliance checking, confidence scoring, and cost estimation), an **MCP server** exposing 10 tools for AI agent integration (Claude Code, Cursor, etc.), a **VS Code extension** for inline translation hints and diagnostics, and a **Go Terraform provider** that lets you author portable `cloud_*` resources targeting any supported cloud.
+The platform also includes a **validation suite** (structural + optional Terraform validation, policy evaluation, compliance checking, confidence scoring), an **MCP server** exposing 10 tools for AI agent integration (Claude Code, Cursor, etc.), a **VS Code extension** (scaffolded, build pipeline working), and a **Go Terraform provider** with 3 portable `cloud_*` resources as a proof-of-concept.
 
 ---
 
