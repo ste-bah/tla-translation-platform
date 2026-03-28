@@ -4,11 +4,7 @@
  * Each tool has:
  *  - A Zod parameter schema (JSON Schema is derived by the SDK)
  *  - A description explaining its purpose
- *  - A handler that either executes the operation or returns a
- *    structured "not implemented" / error response
- *
- * Tool implementations are stubs here; full logic lands in
- * TASK-MCP-002 through TASK-MCP-005.
+ *  - A handler wired to the real implementation in its respective module
  */
 
 import { z } from 'zod';

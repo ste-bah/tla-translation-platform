@@ -185,6 +185,11 @@ export async function handleTranslate(
     await writeFile(join(outputDir, 'canonical-ir.json'), JSON.stringify(ir, null, 2), 'utf-8');
     writtenFiles.push('canonical-ir.json');
 
+    // 10a2. Write translation-result.json for downstream validation (semantic diff, cost)
+    const translationResultJson = JSON.stringify(translationResult, null, 2);
+    await writeFile(join(outputDir, 'translation-result.json'), translationResultJson, 'utf-8');
+    writtenFiles.push('translation-result.json');
+
     // 10b. Write manifest.json
     const manifestJson = JSON.stringify(translationResult.manifest, null, 2);
     await writeFile(join(outputDir, 'manifest.json'), manifestJson, 'utf-8');
@@ -198,6 +203,7 @@ export async function handleTranslate(
     // 10d. Build artifact hashes for audit integrity
     const artifactHashes: Record<string, string> = {};
     artifactHashes['canonical-ir.json'] = createHash('sha256').update(JSON.stringify(ir, null, 2)).digest('hex');
+    artifactHashes['translation-result.json'] = createHash('sha256').update(translationResultJson).digest('hex');
     for (const [fileName, content] of Object.entries(translationResult.files)) {
       artifactHashes[fileName] = createHash('sha256').update(content).digest('hex');
     }

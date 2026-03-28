@@ -168,20 +168,31 @@ async function discoverBundle(translatedDir: string): Promise<DiscoveredBundle> 
     discoveredFrom.push('manifest.json');
   } catch { /* not found or invalid */ }
 
+  // Load canonical-ir.json — accept both raw CanonicalIR and wrapped { ir, translationResult }
   try {
     const raw = await readFile(join(translatedDir, 'canonical-ir.json'), 'utf-8');
-    const parsed = JSON.parse(raw) as {
-      ir?: CanonicalIR;
-      translationResult?: TranslationResult;
-    };
-    if (parsed.ir) {
-      ir = parsed.ir;
-      discoveredFrom.push('canonical-ir.json');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (parsed.ir && Array.isArray((parsed.ir as CanonicalIR).resources)) {
+      // Wrapped format: { ir: CanonicalIR, translationResult?: TranslationResult }
+      ir = parsed.ir as CanonicalIR;
+      if (parsed.translationResult) {
+        translationResult = parsed.translationResult as TranslationResult;
+      }
+    } else if (Array.isArray((parsed as unknown as CanonicalIR).resources)) {
+      // Raw CanonicalIR format (current translate output)
+      ir = parsed as unknown as CanonicalIR;
     }
-    if (parsed.translationResult) {
-      translationResult = parsed.translationResult;
-    }
+    if (ir) discoveredFrom.push('canonical-ir.json');
   } catch { /* not found or invalid */ }
+
+  // Load translation-result.json (persisted TranslationResult for semantic diff + cost)
+  if (!translationResult) {
+    try {
+      const raw = await readFile(join(translatedDir, 'translation-result.json'), 'utf-8');
+      translationResult = JSON.parse(raw) as TranslationResult;
+      discoveredFrom.push('translation-result.json');
+    } catch { /* not found or invalid */ }
+  }
 
   return { manifest, ir, translationResult, discoveredFrom };
 }
@@ -297,11 +308,18 @@ function checkFileStructure(
   }
 }
 
+interface TerraformTierResult {
+  /** Did the terraform binary actually execute validation? */
+  ran: boolean;
+  /** Did terraform report validation errors? */
+  hadErrors: boolean;
+}
+
 /** Tier-2: run terraform validate (synchronous). */
 function runTerraformTier(
   translatedDir: string,
   issues: string[],
-): boolean {
+): TerraformTierResult {
   try {
     const tfResult = runTerraformValidate(translatedDir, { timeoutMs: 30_000 });
     if (tfResult.ok) {
@@ -317,16 +335,18 @@ function runTerraformTier(
             if (severity === 'error') hasError = true;
             issues.push(`[terraform ${severity}] ${diag.summary ?? 'unknown'}: ${diag.detail ?? ''}`);
           }
-          return hasError;
+          return { ran: true, hadErrors: hasError };
         }
       } catch { /* ignore JSON parse failure */ }
+      return { ran: true, hadErrors: false };
     } else {
       issues.push(`[terraform validate skipped] ${tfResult.message}`);
+      return { ran: false, hadErrors: false };
     }
   } catch {
     // terraform binary not available — skip gracefully
   }
-  return false;
+  return { ran: false, hadErrors: false };
 }
 
 async function runSyntaxCheck(
@@ -363,19 +383,14 @@ async function runSyntaxCheck(
     }
 
     // Tier 2: terraform validate
-    const structuralIssueCount = issues.length;
-    const terraformHadErrors = runTerraformTier(translatedDir, issues);
-    if (issues.length > structuralIssueCount || terraformHadErrors) {
-      validationTiers.push('terraform-validate');
-    } else {
-      // Check if terraform was actually attempted (no new issues but it ran)
-      // We always attempt it, so mark the tier as ran even if clean
+    const tfTier = runTerraformTier(translatedDir, issues);
+    if (tfTier.ran) {
       validationTiers.push('terraform-validate');
     }
 
     // Tier 3: result classification
     let result: SyntaxCheckResult['result'];
-    if (terraformHadErrors) {
+    if (tfTier.hadErrors) {
       result = 'fail';
     } else if (issues.length > 0) {
       result = 'warn';

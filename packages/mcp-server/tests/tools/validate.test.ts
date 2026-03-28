@@ -152,8 +152,51 @@ const fakeManifestContent = JSON.stringify({
   confidenceOverall: 0.9,
 });
 
-/** Minimal canonical-ir.json (as found in translated dir) */
+/** Minimal canonical-ir.json — raw CanonicalIR format (current translate output) */
 const fakeCanonicalIrContent = JSON.stringify({
+  version: '1.0.0',
+  sourceProvider: 'aws',
+  metadata: {
+    generatedAt: new Date().toISOString(),
+    sourceFiles: [],
+    toolVersion: '0.1.0',
+    resourceCount: 0,
+    relationshipCount: 0,
+  },
+  resources: [],
+  relationships: [],
+  modules: [],
+  intents: [],
+});
+
+/** Minimal translation-result.json (persisted TranslationResult) */
+const fakeTranslationResultContent = JSON.stringify({
+  target: 'azure',
+  resources: [],
+  files: {},
+  manifest: {
+    version: '1.0.0',
+    registryVersion: '2026.03.13',
+    target: 'azure',
+    counts: { total: 0, translated: 0, expanded: 0, partial: 0, blocked: 0, advisory: 0 },
+    entries: [],
+    findings: [],
+    confidenceOverall: 0.9,
+  },
+  findings: [],
+  stats: {
+    totalResources: 0,
+    translated: 0,
+    expanded: 0,
+    partial: 0,
+    blocked: 0,
+    advisory: 0,
+    durationMs: 10,
+  },
+});
+
+/** Backward-compat: wrapped canonical-ir.json format { ir, translationResult } */
+const fakeWrappedCanonicalIrContent = JSON.stringify({
   ir: {
     version: '1.0.0',
     sourceProvider: 'aws',
@@ -239,10 +282,17 @@ const fakeIrFileContent = JSON.stringify({
 });
 
 /**
- * Sets up mockReadFile to return manifest.json and/or canonical-ir.json from the
- * translated directory, simulating auto-discovery.
+ * Sets up mockReadFile to return manifest.json, canonical-ir.json, and/or
+ * translation-result.json from the translated directory, simulating auto-discovery.
  */
-function setupDiscovery(opts: { manifest?: boolean; ir?: boolean } = {}): void {
+function setupDiscovery(opts: {
+  manifest?: boolean;
+  ir?: boolean;
+  translationResult?: boolean;
+  wrappedIr?: boolean;
+} = {}): void {
+  // Default: if IR is requested, also provide translation-result.json unless explicitly disabled
+  const provideTranslationResult = opts.translationResult ?? opts.ir ?? false;
   mockReadFile.mockImplementation(async (path: string) => {
     if (path === FAKE_IR_PATH) return fakeIrFileContent;
     if (path.endsWith('/manifest.json')) {
@@ -250,7 +300,12 @@ function setupDiscovery(opts: { manifest?: boolean; ir?: boolean } = {}): void {
       throw new Error('ENOENT: no such file or directory');
     }
     if (path.endsWith('/canonical-ir.json')) {
+      if (opts.wrappedIr) return fakeWrappedCanonicalIrContent;
       if (opts.ir) return fakeCanonicalIrContent;
+      throw new Error('ENOENT: no such file or directory');
+    }
+    if (path.endsWith('/translation-result.json')) {
+      if (provideTranslationResult) return fakeTranslationResultContent;
       throw new Error('ENOENT: no such file or directory');
     }
     return 'resource "azurerm_resource_group" "rg" {}\n';
@@ -275,8 +330,8 @@ beforeEach(() => {
   mockReaddir.mockResolvedValue(['main.tf', 'variables.tf']);
   mockReadFile.mockImplementation(async (path: string) => {
     if (path === FAKE_IR_PATH) return fakeIrFileContent;
-    // Auto-discovery: manifest.json and canonical-ir.json not present by default
-    if (path.endsWith('/manifest.json') || path.endsWith('/canonical-ir.json')) {
+    // Auto-discovery: manifest.json, canonical-ir.json, translation-result.json not present by default
+    if (path.endsWith('/manifest.json') || path.endsWith('/canonical-ir.json') || path.endsWith('/translation-result.json')) {
       throw new Error('ENOENT: no such file or directory');
     }
     return 'resource "azurerm_resource_group" "rg" {}\n';
@@ -394,6 +449,7 @@ describe('handleValidate — syntax check', () => {
     expect(result.success).toBe(true);
     expect(result.checks?.syntax?.result).toBe('warn');
     expect(result.checks?.syntax?.issues.some((i) => i.includes('terraform validate skipped'))).toBe(true);
+    expect(result.checks?.syntax?.validationTiers).not.toContain('terraform-validate');
   });
 
   it('reports validationTiers in result', async () => {
@@ -850,6 +906,7 @@ describe('handleValidate — defaults', () => {
     expect(result.checks?.confidence).toBeDefined();
     expect(result.discoveredArtifacts).toContain('manifest.json');
     expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+    expect(result.discoveredArtifacts).toContain('translation-result.json');
   });
 
   it('skips policy/compliance/semantic/confidence/cost when no artifacts discovered', async () => {
@@ -1018,6 +1075,7 @@ describe('handleValidate — auto-discovery', () => {
       if (path === FAKE_IR_PATH) return customIrContent;
       if (path.endsWith('/manifest.json')) throw new Error('ENOENT');
       if (path.endsWith('/canonical-ir.json')) return fakeCanonicalIrContent;
+      if (path.endsWith('/translation-result.json')) return fakeTranslationResultContent;
       return 'resource "azurerm_resource_group" "rg" {}\n';
     });
 
@@ -1045,6 +1103,7 @@ describe('handleValidate — auto-discovery', () => {
     expect(Array.isArray(result.discoveredArtifacts)).toBe(true);
     expect(result.discoveredArtifacts).toContain('manifest.json');
     expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+    expect(result.discoveredArtifacts).toContain('translation-result.json');
   });
 
   it('returns empty discoveredArtifacts when no artifacts found', async () => {
@@ -1069,5 +1128,64 @@ describe('handleValidate — auto-discovery', () => {
     // Semantic runs because irFile was loaded
     expect(result.checks?.semanticDiff).toBeDefined();
     expect(mockCheckEquivalence).toHaveBeenCalled();
+  });
+
+  it('discovers raw CanonicalIR format from canonical-ir.json', async () => {
+    // Raw format: canonical-ir.json contains CanonicalIR directly (no wrapper)
+    setupDiscovery({ ir: true });
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'confidence'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+    expect(result.checks?.confidence).toBeDefined();
+    expect(mockScoreConfidence).toHaveBeenCalled();
+  });
+
+  it('discovers backward-compat wrapped format from canonical-ir.json', async () => {
+    // Wrapped format: canonical-ir.json contains { ir, translationResult }
+    setupDiscovery({ wrappedIr: true, translationResult: false });
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'semantic'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+    // Semantic runs because IR and translationResult were both in the wrapped file
+    expect(result.checks?.semanticDiff).toBeDefined();
+    expect(mockCheckEquivalence).toHaveBeenCalled();
+  });
+
+  it('discovers translation-result.json separately from raw canonical-ir.json', async () => {
+    setupDiscovery({ ir: true, translationResult: true });
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'semantic'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+    expect(result.discoveredArtifacts).toContain('translation-result.json');
+    // Semantic runs because both IR and translationResult are available
+    expect(result.checks?.semanticDiff).toBeDefined();
+    expect(mockCheckEquivalence).toHaveBeenCalled();
+  });
+
+  it('skips semantic diff when IR found but no translationResult', async () => {
+    // Raw canonical-ir.json without translation-result.json
+    setupDiscovery({ ir: true, translationResult: false });
+    const result = await handleValidate({
+      ...defaultArgs,
+      checks: ['syntax', 'semantic'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.discoveredArtifacts).toContain('canonical-ir.json');
+    // No translationResult → semantic diff skipped
+    expect(result.checks?.semanticDiff).toBeUndefined();
+    expect(result.findings?.some((f) => f.code === 'VALIDATE_SEMANTIC_SKIP')).toBe(true);
   });
 });

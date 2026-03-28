@@ -158,6 +158,7 @@ function formatTranslationText(
   result: TranslationResult,
   outputDir: string,
   manifestSummary: ManifestSummary,
+  writtenArtifacts: string[],
 ): string {
   const lines: string[] = [];
   lines.push('Translation Complete');
@@ -175,10 +176,7 @@ function formatTranslationText(
   lines.push(`  Advisory:   ${String(manifestSummary.advisory)}`);
   lines.push('');
 
-  const fileNames = [...Object.keys(result.files), 'canonical-ir.json', 'manifest.json', 'translation-report.md', 'audit-log.jsonl', 'confidence-report.json'];
-  if (manifestSummary.blocked > 0 || manifestSummary.advisory > 0) {
-    fileNames.push('migration-pack.md');
-  }
+  const fileNames = [...writtenArtifacts];
   if (fileNames.length > 0) {
     lines.push(`Files written (${String(fileNames.length)}):`);
     for (const name of fileNames.sort()) {
@@ -338,7 +336,7 @@ async function runFullTranslation(
   opts: TranslateOptions,
   scope: 'full' | 'selected' | 'stack' | 'module',
   sourcePath: string,
-): Promise<{ result: TranslationResult; outputDir: string }> {
+): Promise<{ result: TranslationResult; outputDir: string; writtenArtifacts: string[] }> {
   // Load registry
   const registryDir = resolve(opts.registry);
   const registry = new RegistryApi(registryDir, loadRegistryFromDirectory, validateRegistryEntries);
@@ -383,25 +381,37 @@ async function runFullTranslation(
   const outputDir = resolve(opts.output ?? `./tla-output-${opts.target}`);
   await mkdir(outputDir, { recursive: true });
 
+  const writtenArtifacts: string[] = [];
+
   // Persist the Canonical IR so validation can auto-discover it
   await writeFile(resolve(outputDir, 'canonical-ir.json'), JSON.stringify(ir, null, 2), 'utf-8');
+  writtenArtifacts.push('canonical-ir.json');
+
+  // Write translation-result.json for downstream validation (semantic diff, cost)
+  const translationResultJson = JSON.stringify(result, null, 2);
+  await writeFile(resolve(outputDir, 'translation-result.json'), translationResultJson, 'utf-8');
+  writtenArtifacts.push('translation-result.json');
 
   for (const [fileName, content] of Object.entries(result.files)) {
     await writeFile(resolve(outputDir, fileName), content, 'utf-8');
+    writtenArtifacts.push(fileName);
   }
 
   // Write manifest.json alongside the generated .tf files
   const manifestJson = JSON.stringify(result.manifest, null, 2);
   await writeFile(resolve(outputDir, 'manifest.json'), manifestJson, 'utf-8');
+  writtenArtifacts.push('manifest.json');
 
   // Write translation-report.md
   const report = buildTranslationReport(result, sourcePath, opts.target, outputDir);
   await writeFile(resolve(outputDir, 'translation-report.md'), report, 'utf-8');
+  writtenArtifacts.push('translation-report.md');
 
   // Build artifact hashes for audit integrity
   const artifactHashes: Record<string, string> = {};
   const irJson = JSON.stringify(ir, null, 2);
   artifactHashes['canonical-ir.json'] = createHash('sha256').update(irJson).digest('hex');
+  artifactHashes['translation-result.json'] = createHash('sha256').update(translationResultJson).digest('hex');
   for (const [fileName, content] of Object.entries(result.files)) {
     artifactHashes[fileName] = createHash('sha256').update(content).digest('hex');
   }
@@ -410,12 +420,14 @@ async function runFullTranslation(
   // Write audit trail entry (append-only JSONL)
   const auditEntry = buildAuditEntry(result, sourcePath, opts.target, Date.now() - startTime, manifestJson, artifactHashes);
   await appendAuditEntry(outputDir, auditEntry);
+  writtenArtifacts.push('audit-log.jsonl');
 
   // Generate migration pack for blocked/advisory resources
   const remediationPack = generateRemediationPack(result.manifest, ir);
   const migrationPackMd = buildMigrationPack(remediationPack);
   if (migrationPackMd !== null) {
     await writeFile(resolve(outputDir, 'migration-pack.md'), migrationPackMd, 'utf-8');
+    writtenArtifacts.push('migration-pack.md');
   }
 
   // Write confidence-report.json
@@ -425,8 +437,9 @@ async function runFullTranslation(
     JSON.stringify(confidenceReport, null, 2),
     'utf-8',
   );
+  writtenArtifacts.push('confidence-report.json');
 
-  return { result, outputDir };
+  return { result, outputDir, writtenArtifacts };
 }
 
 /**
@@ -521,7 +534,7 @@ export function registerTranslate(program: Command): void {
           return;
         }
 
-        const { result, outputDir } = await runFullTranslation(asts, opts, scope, sourcePath);
+        const { result, outputDir, writtenArtifacts } = await runFullTranslation(asts, opts, scope, sourcePath);
         const manifestSummary = buildManifestSummary(result.manifest);
         const hasBlockers = result.findings.some((f: TranslationFinding) => f.severity === 'blocker');
 
@@ -530,19 +543,14 @@ export function registerTranslate(program: Command): void {
             success: true,
             target: opts.target,
             outputDir,
-            files: [
-              ...Object.keys(result.files),
-              'manifest.json',
-              'translation-report.md',
-              ...(manifestSummary.blocked > 0 || manifestSummary.advisory > 0 ? ['migration-pack.md'] : []),
-            ].sort(),
+            files: [...writtenArtifacts].sort(),
             manifest: manifestSummary,
             confidence: result.manifest.confidenceOverall,
             findings: result.findings,
           };
           process.stdout.write(JSON.stringify(output, null, 2) + '\n');
         } else {
-          process.stdout.write(formatTranslationText(result, outputDir, manifestSummary) + '\n');
+          process.stdout.write(formatTranslationText(result, outputDir, manifestSummary, writtenArtifacts) + '\n');
         }
 
         if (hasBlockers) {

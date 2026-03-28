@@ -460,7 +460,7 @@ go test ./...
 ### Project Structure
 
 ```
-Translation_Platform/
+tla-translation-platform/
   packages/
     shared/           # Shared types, Zod schemas, audit trail
     ingestion/        # HCL parser, dependency graph, IR emitter

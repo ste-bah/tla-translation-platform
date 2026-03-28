@@ -241,7 +241,7 @@ describe('handleTranslate — file mode (scope: full)', () => {
     expect(result.target).toBe('azure');
     expect(result.files).toEqual([
       'main.tf', 'variables.tf', 'outputs.tf', 'providers.tf', 'terraform.tf',
-      'canonical-ir.json',
+      'canonical-ir.json', 'translation-result.json',
       'manifest.json', 'translation-report.md',
       'audit-log.jsonl', 'confidence-report.json',
     ]);
@@ -386,7 +386,7 @@ describe('handleTranslate — directory mode (scope: full)', () => {
       buildFakeRegistryManager(),
     );
     expect(result.success).toBe(true);
-    expect(result.files).toHaveLength(10);
+    expect(result.files).toHaveLength(11);
   });
 });
 
@@ -435,7 +435,7 @@ describe('handleTranslate — inline mode (scope: full)', () => {
       buildFakeRegistryManager(),
     );
     expect(result.success).toBe(true);
-    expect(result.files).toHaveLength(10);
+    expect(result.files).toHaveLength(11);
   });
 });
 
