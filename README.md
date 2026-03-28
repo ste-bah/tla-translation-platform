@@ -103,7 +103,7 @@ npx tla migrate-state --state terraform.tfstate --translated-dir ./azure-output 
 | **@tla/validator** | `packages/validator` | Validation, policy, compliance, cost estimation | `checkEquivalence`, `evaluatePolicies`, `checkCompliance`, `scoreConfidence` |
 | **@tla/mcp-server** | `packages/mcp-server` | MCP server (10 tools) for AI agent integration | `translate`, `equivalence-lookup`, `validate`, `migrate-state` |
 | **@tla/cli** | `packages/cli` | Command-line interface | `tla translate`, `tla validate`, `tla assess`, `tla migrate-state`, `tla validate-registry`, `tla registry-report` |
-| **ide-extension** | `packages/ide-extension` | VS Code extension for inline hints | Completions, diagnostics, lint rules |
+| **ide-extension** | `packages/ide-extension` | VS Code extension (scaffolded) | Completions, diagnostics (build pipeline working) |
 | **terraform-provider** | `packages/terraform-provider` | Go Terraform provider for portable resources | `cloud_object_storage`, `cloud_container_registry`, `cloud_cache_redis` |
 | **integration-tests** | `packages/integration-tests` | End-to-end test suite | Azure E2E, GCP E2E, edge case fixtures |
 
@@ -224,7 +224,7 @@ Resources NOT in the dispatch tables above will use generic fallback translation
 
 ### Complete AWS to Azure/GCP Mapping Table
 
-Every AWS resource below has a dedicated translation engine. The **Band** indicates translation confidence: P1 (highest, direct mapping) through M1 (advisory only, manual migration required).
+The resource types below are recognized by the platform. Resources with specialized handlers get dedicated translation logic. Others may use generic fallback or advisory stubs. The **Band** indicates translation confidence: P1 (highest, direct mapping) through M1 (advisory only, manual migration required).
 
 #### Compute
 
@@ -259,8 +259,8 @@ Every AWS resource below has a dedicated translation engine. The **Band** indica
 
 | AWS Resource | Azure Target | GCP Target | Band | Engine |
 |---|---|---|---|---|
-| `aws_vpc` | `azurerm_virtual_network` | `google_compute_network` | P2 | Parametric |
-| `aws_subnet` | `azurerm_subnet` | `google_compute_subnetwork` | P2 | Parametric |
+| `aws_vpc` | `azurerm_virtual_network` | `google_compute_network` | P2 | Structural |
+| `aws_subnet` | `azurerm_subnet` | `google_compute_subnetwork` | P2 | Structural |
 | `aws_security_group` | `azurerm_network_security_group` + `azurerm_network_security_rule` | `google_compute_firewall` | N1 | Structural (BLOCKER gate on rule broadening) |
 | `aws_lb` (ALB) | `azurerm_application_gateway` | `google_compute_url_map` + `google_compute_backend_service` | N1 | Compound |
 | `aws_lb` (NLB) | `azurerm_lb` | `google_compute_forwarding_rule` | N1 | Compound |
@@ -316,18 +316,18 @@ These resource types are recognized and classified but do not require dedicated 
 
 | Band | Meaning | Count | Confidence |
 |------|---------|-------|------------|
-| **P1** | Direct 1:1 mapping, high confidence | 4 | 0.85-0.95 |
-| **P2** | Parametric with attribute transformation | 8 | 0.70-0.85 |
-| **N1** | Requires manual attention, compound/structural | 17 | 0.50-0.70 |
-| **M1** | Advisory only, manual migration required | 3 | 0.10-0.30 |
+| **P1** | Direct 1:1 mapping, high confidence | 5 | 0.85-0.95 |
+| **P2** | Parametric / structural with transformation | 12 | 0.70-0.85 |
+| **N1** | Compound / structural, needs review | 17 | 0.50-0.70 |
+| **M1** | Advisory only, manual migration required | 5 | 0.10-0.30 |
 
-> **Total: 32+ AWS resource types** with dedicated translation logic across 5 engine types.
+> **~39 AWS resource types** recognized across 5 engine types (specialized handlers + advisory stubs). See the Translation Depth Matrix above for which use specialized vs generic fallback paths.
 
 ---
 
 ## Validation Suite
 
-The platform includes 6 validation check types that run against every translation:
+The platform includes up to 6 validation check types. Checks that require artifacts (manifest, IR) are skipped when those artifacts are not available:
 
 | Check | Description |
 |-------|-------------|
@@ -383,9 +383,6 @@ pnpm test -- --coverage
 | `TLA_REGISTRY_DIR` | `./packages/registry/data` | Path to service equivalence registry YAML files |
 | `TLA_TERRAFORM_BIN` | `terraform` | Path to Terraform or OpenTofu binary (used by validator) |
 | `TLA_LOG_LEVEL` | `info` | Logging level: `debug`, `info`, `warn`, `error` |
-| `TLA_COMPLIANCE_PROFILE` | `cis-basic` | Default compliance profile: `cis-basic`, `cis-advanced` |
-| `TLA_MAX_CONCURRENCY` | `4` | Maximum parallel resource translations |
-| `TLA_OUTPUT_FORMAT` | `hcl` | Output format: `hcl`, `json` |
 
 ### MCP Server Configuration
 
@@ -397,8 +394,7 @@ pnpm test -- --coverage
       "args": ["packages/mcp-server/dist/server.js"],
       "env": {
         "TLA_REGISTRY_DIR": "./packages/registry/data",
-        "TLA_LOG_LEVEL": "info",
-        "TLA_COMPLIANCE_PROFILE": "cis-basic"
+        "TLA_LOG_LEVEL": "info"
       }
     }
   }
@@ -409,10 +405,10 @@ pnpm test -- --coverage
 
 ```bash
 # Use CIS-Basic (default)
-npx tla validate ./output --compliance cis-basic
+npx tla validate ./output --compliance-profile cis-basic
 
 # Use CIS-Advanced
-npx tla validate ./output --compliance cis-advanced
+npx tla validate ./output --compliance-profile cis-advanced
 ```
 
 ---

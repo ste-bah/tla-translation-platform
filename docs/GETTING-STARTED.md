@@ -21,8 +21,8 @@ pnpm --version   # 10.x.x or higher
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/Translation_Platform.git
-cd Translation_Platform
+git clone https://github.com/ste-bah/tla-translation-platform.git
+cd tla-translation-platform
 
 pnpm install
 pnpm build
@@ -108,15 +108,22 @@ npx tla translate ./sample --target azure --scope assessment
 The assessment prints a summary like:
 
 ```
-Translation Assessment for ./sample -> azure
-=============================================
-Resources found: 3
-  aws_vpc          -> azurerm_virtual_network   [P2 parametric]  confidence: 0.85
-  aws_s3_bucket    -> azurerm_storage_account   [P1 direct]      confidence: 0.92
-  aws_s3_bucket_versioning -> (merged into storage_account) [compound]
+Assessment Inventory
+====================
 
-Findings: 2 info, 0 warnings, 0 blockers
-Overall confidence: 0.88
+Total resources: 3
+AWS resources:   3
+Procedural:      0
+Unknown:         0
+
+By family:
+  networking: 1
+  storage: 2
+
+By resource type:
+  aws_vpc: 1 (networking)
+  aws_s3_bucket: 1 (storage)
+  aws_s3_bucket_versioning: 1 (storage)
 ```
 
 ### 3. Run the full translation
@@ -155,7 +162,7 @@ Open `azure-output/manifest.json`. It contains:
           "targetName": "main",
           "attributes": {},
           "sourceId": "main",
-          "traceability": { "sourceId": "main", "engine": "parametric", "confidence": 0.85 }
+          "traceability": { "sourceId": "main", "engine": "structural", "confidence": 0.85 }
         }
       ],
       "confidence": 0.85,
