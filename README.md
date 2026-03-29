@@ -77,8 +77,11 @@ npx tla translate ./my-aws-terraform --target gcp --output ./gcp-output
 # Assessment only (no translation output, just the report)
 npx tla translate ./my-aws-terraform --target azure --scope assessment
 
-# Validate an existing translation
-npx tla validate ./azure-output --source ./my-aws-terraform
+# Validate an existing translation (auto-discovers manifest / IR / translation result from output dir)
+npx tla validate ./azure-output
+
+# Or validate with an explicit IR bundle / translation result file
+npx tla validate ./azure-output --ir ./azure-output/translation-result.json
 
 # Registry report
 npx tla registry-report --format table
@@ -87,7 +90,7 @@ npx tla registry-report --format table
 npx tla assess ./my-aws-terraform --target azure
 
 # Generate state migration commands
-npx tla migrate-state --state terraform.tfstate --translated-dir ./azure-output --target azure
+npx tla migrate-state ./azure-output --state-file terraform.tfstate --target azure
 ```
 
 ---
@@ -154,6 +157,8 @@ Each translation produces the following files in the output directory:
 | `terraform.tf` | Terraform version and required providers |
 | `variables.tf` | Input variables (subscription_id/project_id, region, etc.) |
 | `outputs.tf` | Output values carried over from source |
+| `canonical-ir.json` | Persisted Canonical IR for downstream validation and traceability |
+| `translation-result.json` | Persisted translation result bundle used by semantic diff and cost checks |
 | `manifest.json` | Machine-readable translation manifest with per-resource confidence and findings |
 | `translation-report.md` | Human-readable translation summary |
 | `audit-log.jsonl` | Append-only audit trail for compliance |
@@ -327,7 +332,7 @@ These resource types are recognized and classified but do not require dedicated 
 
 ## Validation Suite
 
-The platform includes up to 6 validation check types. Checks that require artifacts (manifest, IR) are skipped when those artifacts are not available:
+The platform includes up to 6 validation check types. The CLI and MCP validator both auto-discover persisted translation artifacts from the translated output directory when available (`manifest.json`, `canonical-ir.json`, `translation-result.json`). Checks that require these artifacts are skipped gracefully when they are not available.
 
 | Check | Description |
 |-------|-------------|
