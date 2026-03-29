@@ -2,19 +2,9 @@ import { z } from 'zod';
 import { CloudProvider, MappingType } from '../constants.js';
 import { TranslationStatus } from './ir.js';
 
-// ---------------------------------------------------------------------------
-// Enums
-// ---------------------------------------------------------------------------
-
-/**
- * Severity of a translation finding.
- */
 export const FindingSeverity = z.enum(['blocker', 'warning', 'info']);
 export type FindingSeverity = z.infer<typeof FindingSeverity>;
 
-/**
- * Status of an individual translation plan item.
- */
 export const TranslationItemStatus = z.enum([
   'translated',
   'expanded',
@@ -24,13 +14,6 @@ export const TranslationItemStatus = z.enum([
 ]);
 export type TranslationItemStatus = z.infer<typeof TranslationItemStatus>;
 
-// ---------------------------------------------------------------------------
-// Core translation schemas
-// ---------------------------------------------------------------------------
-
-/**
- * Records the provenance of a single translated resource.
- */
 export const TraceabilityRecordSchema = z.object({
   sourceId: z.string().min(1),
   sourceType: z.string().min(1),
@@ -42,9 +25,6 @@ export const TraceabilityRecordSchema = z.object({
 });
 export type TraceabilityRecord = z.infer<typeof TraceabilityRecordSchema>;
 
-/**
- * A single resource produced by the translation engine.
- */
 export const TranslatedResourceSchema = z.object({
   targetType: z.string().min(1),
   targetName: z.string().min(1),
@@ -54,9 +34,6 @@ export const TranslatedResourceSchema = z.object({
 });
 export type TranslatedResource = z.infer<typeof TranslatedResourceSchema>;
 
-/**
- * A finding (warning, blocker, info) produced during translation.
- */
 export const TranslationFindingSchema = z.object({
   resourceId: z.string().min(1),
   severity: FindingSeverity,
@@ -66,13 +43,18 @@ export const TranslationFindingSchema = z.object({
 });
 export type TranslationFinding = z.infer<typeof TranslationFindingSchema>;
 
-// ---------------------------------------------------------------------------
-// Translation plan
-// ---------------------------------------------------------------------------
+export const TranslationContractSchema = z.object({
+  sourceId: z.string().min(1),
+  targetIds: z.array(z.string().min(1)).default([]),
+  preserved: z.array(z.string().min(1)).default([]),
+  transformed: z.array(z.string().min(1)).default([]),
+  degraded: z.array(z.string().min(1)).default([]),
+  blockers: z.array(z.string().min(1)).default([]),
+  reviewRequired: z.array(z.string().min(1)).default([]),
+  confidenceFactors: z.array(z.string().min(1)).default([]),
+});
+export type TranslationContract = z.infer<typeof TranslationContractSchema>;
 
-/**
- * A single item in the translation plan.
- */
 export const TranslationPlanItemSchema = z.object({
   resourceId: z.string().min(1),
   registryEntryId: z.string().nullable().default(null),
@@ -84,9 +66,6 @@ export const TranslationPlanItemSchema = z.object({
 });
 export type TranslationPlanItem = z.infer<typeof TranslationPlanItemSchema>;
 
-/**
- * The ordered translation plan for an IR.
- */
 export const TranslationPlanSchema = z.object({
   items: z.array(TranslationPlanItemSchema),
   blockedCount: z.number().int().nonnegative(),
@@ -94,13 +73,6 @@ export const TranslationPlanSchema = z.object({
 });
 export type TranslationPlan = z.infer<typeof TranslationPlanSchema>;
 
-// ---------------------------------------------------------------------------
-// Manifest
-// ---------------------------------------------------------------------------
-
-/**
- * A single entry in the translation manifest.
- */
 export const ManifestEntrySchema = z.object({
   sourceId: z.string().min(1),
   sourceType: z.string().min(1),
@@ -108,12 +80,10 @@ export const ManifestEntrySchema = z.object({
   targetResources: z.array(TranslatedResourceSchema),
   confidence: z.number().min(0).max(1),
   findings: z.array(TranslationFindingSchema),
+  contract: TranslationContractSchema.nullable().optional().default(null),
 });
 export type ManifestEntry = z.infer<typeof ManifestEntrySchema>;
 
-/**
- * Full translation manifest attached to every result.
- */
 export const TranslationManifestSchema = z.object({
   version: z.string().regex(/^\d+\.\d+\.\d+$/, 'Must be semver'),
   registryVersion: z.string().min(1),
@@ -132,13 +102,6 @@ export const TranslationManifestSchema = z.object({
 });
 export type TranslationManifest = z.infer<typeof TranslationManifestSchema>;
 
-// ---------------------------------------------------------------------------
-// Stats, options, result
-// ---------------------------------------------------------------------------
-
-/**
- * Translation statistics.
- */
 export const TranslationStatsSchema = z.object({
   totalResources: z.number().int().nonnegative(),
   translated: z.number().int().nonnegative(),
@@ -150,9 +113,6 @@ export const TranslationStatsSchema = z.object({
 });
 export type TranslationStats = z.infer<typeof TranslationStatsSchema>;
 
-/**
- * Options passed to the translation compiler.
- */
 export const CompilerOptionsSchema = z.object({
   targetProvider: CloudProvider,
   registryVersion: z.string().min(1),
@@ -161,9 +121,6 @@ export const CompilerOptionsSchema = z.object({
 });
 export type CompilerOptions = z.infer<typeof CompilerOptionsSchema>;
 
-/**
- * Complete result of a translation run.
- */
 export const TranslationResultSchema = z.object({
   target: CloudProvider,
   resources: z.array(TranslatedResourceSchema),

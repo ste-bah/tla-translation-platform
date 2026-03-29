@@ -11,7 +11,6 @@ export {
   CloudProvider,
 } from './constants.js';
 
-// Registry types and schemas
 export {
   BehavioralGapSchema,
   RegistryEntrySchema,
@@ -21,7 +20,6 @@ export type {
   RegistryEntry,
 } from './types/registry.js';
 
-// Error classes
 export {
   TlaError,
   RegistryError,
@@ -31,7 +29,6 @@ export {
   isTlaError,
 } from './errors.js';
 
-// HCL AST types and schemas
 export {
   SourceLocationSchema,
   HclResourceMetaSchema,
@@ -61,7 +58,6 @@ export type {
   HclAst,
 } from './types/hcl.js';
 
-// Terraform plan types and schemas
 export {
   ResourceChangeSchema,
   PlanDataSchema,
@@ -71,7 +67,6 @@ export type {
   PlanData,
 } from './types/plan.js';
 
-// Terraform state types and schemas
 export {
   StateResourceSchema,
   StateDataV3Schema,
@@ -85,7 +80,6 @@ export type {
   StateData,
 } from './types/state.js';
 
-// Service discovery types and schemas
 export {
   IdentifiedServiceSchema,
   ProceduralResourceSchema,
@@ -99,7 +93,6 @@ export type {
   InfraMetadata,
 } from './types/discovery.js';
 
-// Graph types and schemas
 export {
   EdgeType,
   GraphEdgeSchema,
@@ -120,7 +113,6 @@ export type {
   GraphAnalysis,
 } from './types/graph.js';
 
-// IR types and schemas
 export {
   ResourceCategory,
   TranslationStatus,
@@ -157,13 +149,13 @@ export type {
   CanonicalIR,
 } from './types/ir.js';
 
-// Translation types and schemas
 export {
   FindingSeverity,
   TranslationItemStatus,
   TraceabilityRecordSchema,
   TranslatedResourceSchema,
   TranslationFindingSchema,
+  TranslationContractSchema,
   TranslationPlanItemSchema,
   TranslationPlanSchema,
   ManifestEntrySchema,
@@ -176,6 +168,7 @@ export type {
   TraceabilityRecord,
   TranslatedResource,
   TranslationFinding,
+  TranslationContract,
   TranslationPlanItem,
   TranslationPlan,
   ManifestEntry,
@@ -185,7 +178,6 @@ export type {
   TranslationResult,
 } from './types/translation.js';
 
-// Equivalence types and schemas
 export {
   EquivalenceClassification,
   DimensionResultSchema,
@@ -204,7 +196,6 @@ export type {
   EquivalenceReport,
 } from './types/equivalence.js';
 
-// Portable provider types and schemas
 export {
   PortableEncryptionSchema,
   CloudObjectStorageSchema,
@@ -222,13 +213,9 @@ export type {
   PortableResource,
 } from './types/portable-provider.js';
 
-// Registry key resolution (shared between ingestion + translator)
 export { resolveRegistryKey, RESOURCE_TYPE_REGISTRY_MAP } from './registry-key-resolver.js';
-
-// Logger utility
 export { createComponentLogger } from './utils/logger.js';
 
-// Audit trail
 export { AuditLogger } from './audit/audit-logger.js';
 export {
   AuditEventKind,
