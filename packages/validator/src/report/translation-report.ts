@@ -611,6 +611,15 @@ function buildFindingsAppendix(manifest: TranslationManifest): string {
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * Generate a human-readable Markdown translation report.
+ *
+ * Includes up to 12 sections depending on which optional inputs are provided.
+ * Never throws — returns a partial report string on any unexpected error.
+ *
+ * @param inputs - Required manifest plus optional supplementary reports.
+ * @returns Markdown string suitable for writing to a file or displaying in a terminal.
+ */
 export function generateTranslationReport(inputs: ReportInputs): string {
   try {
     const { manifest, equivalence, confidence, auditLog, costDelta } = inputs;

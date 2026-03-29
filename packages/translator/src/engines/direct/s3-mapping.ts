@@ -17,6 +17,7 @@ import {
   createFinding,
 } from './attribute-transformer.js';
 
+// Keys we explicitly handle during mapping
 const MAPPED_KEYS: readonly string[] = [
   'bucket',
   'region',
@@ -34,6 +35,10 @@ const MAPPED_KEYS: readonly string[] = [
   'object_lock_configuration',
   'website',
 ];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function sanitizeAzureName(raw: string, resourceId: string): { name: string; sanitized: boolean } {
   let name = raw.replace(/[^a-z0-9]/g, '').slice(0, 24);
@@ -125,6 +130,10 @@ function buildS3Contract(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Azure translation
+// ---------------------------------------------------------------------------
+
 function translateToAzure(ctx: TranslationContext): EngineResult {
   const { resource } = ctx;
   const attrs = resource.attributes as Record<string, unknown>;
@@ -203,6 +212,10 @@ function translateToAzure(ctx: TranslationContext): EngineResult {
     contracts: [buildS3Contract(resource.id, attrs, translated, findings)],
   };
 }
+
+// ---------------------------------------------------------------------------
+// GCP translation
+// ---------------------------------------------------------------------------
 
 function translateToGcp(ctx: TranslationContext): EngineResult {
   const { resource } = ctx;
@@ -327,6 +340,13 @@ function translateToGcp(ctx: TranslationContext): EngineResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Translates an aws_s3_bucket resource to Azure or GCP equivalents.
+ */
 export function translateS3(ctx: TranslationContext): EngineResult {
   if (ctx.targetProvider === 'azure') {
     return translateToAzure(ctx);
