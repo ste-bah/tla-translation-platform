@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { translateS3 } from '../../src/engines/direct/s3-mapping.js';
+import type { CloudProvider } from '@tla/shared';
 
-function makeContext(targetProvider, attrs = {}) {
+function makeContext(targetProvider: CloudProvider, attrs: Record<string, unknown> = {}) {
   const resource = {
     id: 'aws_s3_bucket.assets',
     sourceType: 'aws_s3_bucket',
