@@ -23,6 +23,10 @@ import { assembleFiles } from './file-assembler.js';
 
 const logger = createComponentLogger('translation-compiler');
 
+/**
+ * Orchestrates the full translation pipeline:
+ * resolve -> plan -> emit -> assemble -> manifest.
+ */
 export class TranslationCompiler {
   private readonly audit: AuditLogger | undefined;
 
@@ -30,6 +34,14 @@ export class TranslationCompiler {
     this.audit = audit;
   }
 
+  /**
+   * Translates a Canonical IR into target-provider infrastructure code.
+   *
+   * @param ir - The source Canonical IR (never mutated)
+   * @param options - Compiler options including target provider
+   * @returns A validated TranslationResult
+   * @throws {TranslationError} On unrecoverable errors
+   */
   translate(ir: CanonicalIR, options: CompilerOptions): TranslationResult {
     const startTime = Date.now();
 
@@ -48,6 +60,7 @@ export class TranslationCompiler {
       registryVersion: options.registryVersion,
     });
 
+    // Phase 1: Plan
     const { plan, findings: planFindings, registryEntries } =
       buildTranslationPlan({
         ir,
@@ -59,8 +72,10 @@ export class TranslationCompiler {
     const allResources: TranslatedResource[] = [];
     const allContracts: TranslationContract[] = [];
 
+    // Build resource lookup (do NOT mutate ir.resources)
     const resourceById = new Map(ir.resources.map((r) => [r.id, r]));
 
+    // Phase 2: Emit (per-resource with error isolation)
     for (const item of plan.items) {
       if (item.status === 'blocked' || item.status === 'advisory') {
         continue;
@@ -74,6 +89,8 @@ export class TranslationCompiler {
 
       try {
         const engine = getEngine(item.mappingType);
+
+        // Gather relationships for this resource
         const relationships = ir.relationships.filter(
           (rel) => rel.from === resource.id || rel.to === resource.id,
         );
@@ -105,7 +122,8 @@ export class TranslationCompiler {
           contractCount: result.contracts?.length ?? 0,
         });
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown engine error';
+        const message =
+          err instanceof Error ? err.message : 'Unknown engine error';
         allFindings.push({
           resourceId: resource.id,
           severity: 'blocker',
@@ -124,9 +142,11 @@ export class TranslationCompiler {
       }
     }
 
+    // Phase 2.5: Post-translation topology validation
     const topologyResult = validateTopology(ir, allResources);
     allFindings.push(...topologyResult.findings);
 
+    // Phase 3: Assemble files
     const fileMap = assembleFiles({
       targetProvider: options.targetProvider,
       resources: allResources,
@@ -139,7 +159,16 @@ export class TranslationCompiler {
       files[name] = content;
     }
 
-    const manifest = this.buildManifest(ir, allResources, allFindings, allContracts, options);
+    // Phase 4: Build manifest
+    const manifest = this.buildManifest(
+      ir,
+      allResources,
+      allFindings,
+      allContracts,
+      options,
+    );
+
+    // Phase 5: Build stats
     const durationMs = Date.now() - startTime;
     const stats = this.buildStats(ir, manifest, durationMs);
 
@@ -162,6 +191,7 @@ export class TranslationCompiler {
       contractCount: allContracts.length,
     });
 
+    // Validate output with Zod
     const result: TranslationResult = {
       target: options.targetProvider,
       resources: allResources,
@@ -174,6 +204,9 @@ export class TranslationCompiler {
     return TranslationResultSchema.parse(result);
   }
 
+  /**
+   * Builds the translation manifest from emit results.
+   */
   private buildManifest(
     ir: CanonicalIR,
     resources: readonly TranslatedResource[],
@@ -181,6 +214,7 @@ export class TranslationCompiler {
     contracts: readonly TranslationContract[],
     options: CompilerOptions,
   ): TranslationManifest {
+    // Group resources and findings by source ID
     const resourcesBySource = new Map<string, TranslatedResource[]>();
     for (const r of resources) {
       const list = resourcesBySource.get(r.sourceId) ?? [];
@@ -195,13 +229,14 @@ export class TranslationCompiler {
       findingsByResource.set(f.resourceId, list);
     }
 
-    const contractsBySource = new Map<string, TranslationContract>();
+    const contractsByResource = new Map<string, TranslationContract>();
     for (const contract of contracts) {
-      if (!contractsBySource.has(contract.sourceId)) {
-        contractsBySource.set(contract.sourceId, contract);
+      if (!contractsByResource.has(contract.sourceId)) {
+        contractsByResource.set(contract.sourceId, contract);
       }
     }
 
+    // Build manifest entries
     const counts = {
       total: ir.resources.length,
       translated: 0,
@@ -217,23 +252,31 @@ export class TranslationCompiler {
     for (const irResource of ir.resources) {
       const targetResources = resourcesBySource.get(irResource.id) ?? [];
       const resourceFindings = findingsByResource.get(irResource.id) ?? [];
-      const contract = contractsBySource.get(irResource.id) ?? null;
+      const contract = contractsByResource.get(irResource.id) ?? null;
 
       const hasBlocker = resourceFindings.some((f) => f.severity === 'blocker');
       const hasTargets = targetResources.length > 0;
 
       let status: ManifestEntry['status'];
-      if (hasBlocker && !hasTargets) status = 'blocked';
-      else if (hasBlocker && hasTargets) status = 'partial';
-      else if (targetResources.length > 1) status = 'expanded';
-      else if (hasTargets) status = 'translated';
-      else status = 'advisory';
+      if (hasBlocker && !hasTargets) {
+        status = 'blocked';
+      } else if (hasBlocker && hasTargets) {
+        status = 'partial';
+      } else if (targetResources.length > 1) {
+        status = 'expanded';
+      } else if (hasTargets) {
+        status = 'translated';
+      } else {
+        status = 'advisory';
+      }
 
       counts[status as keyof typeof counts]++;
 
-      const confidence = targetResources.length > 0
-        ? targetResources.reduce((sum, r) => sum + r.traceability.confidence, 0) / targetResources.length
-        : 0;
+      const confidence =
+        targetResources.length > 0
+          ? targetResources.reduce((sum, r) => sum + r.traceability.confidence, 0) /
+            targetResources.length
+          : 0;
       totalConfidence += confidence;
 
       entries.push({
@@ -247,11 +290,16 @@ export class TranslationCompiler {
       });
     }
 
-    const confidenceOverall = ir.resources.length > 0 ? totalConfidence / ir.resources.length : 0;
+    const confidenceOverall =
+      ir.resources.length > 0 ? totalConfidence / ir.resources.length : 0;
+
+    // Count generic-fallback translations across all entries
     const allFindings = [...findings];
     let fallbackCount = 0;
     for (const entry of entries) {
-      const hasFallback = entry.targetResources.some((r) => r.traceability.translationPath === 'generic-fallback');
+      const hasFallback = entry.targetResources.some(
+        (r) => r.traceability.translationPath === 'generic-fallback',
+      );
       if (hasFallback) fallbackCount++;
     }
     if (fallbackCount > 0) {
@@ -274,6 +322,9 @@ export class TranslationCompiler {
     };
   }
 
+  /**
+   * Builds translation statistics from the manifest.
+   */
   private buildStats(
     ir: CanonicalIR,
     manifest: TranslationManifest,
