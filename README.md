@@ -231,6 +231,22 @@ Each AWS resource type falls into one of four translation depth tiers:
 
 Resources NOT in the dispatch tables above will use generic fallback translation when their registry `mapping_type` routes them to an engine without a specialized handler. The `registry-stats` MCP tool includes a `handlerCoverage` section showing the breakdown.
 
+### Service Coverage Heatmap
+
+This is the practical view of current coverage quality for AWS-to-Azure/GCP infrastructure translation.
+
+| Coverage Level | Services |
+|---|---|
+| **Well covered** | EC2, S3, ECR, ElastiCache Redis, Route53, VPC, Subnet, VPC Peering, NAT Gateway, KMS, Secrets Manager, EKS, RDS |
+| **Partially covered / review-heavy** | ASG, ALB/NLB, Lambda, ECS, API Gateway, Security Groups, CloudWatch, Transit Gateway, PrivateLink, WAF, Direct Connect, VPN, Customer Gateway, EBS, EFS, SQS, SNS, Step Functions, CloudFront |
+| **Still weak / advisory-heavy** | IAM Roles/Policies, DynamoDB, Route53 Health Checks, ElastiCache Cluster, procedural resources such as `null_resource`, `data "external"`, and `local-exec` provisioners |
+
+### What the heatmap means
+
+- **Well covered** means there is meaningful specialised handling and the platform is relatively strong for internal assisted migration use.
+- **Partially covered / review-heavy** means translation exists, but the output should still be treated as guarded and review-driven because cross-cloud behaviour often needs verification.
+- **Still weak / advisory-heavy** means the platform recognises these areas, but they remain manual-review or advisory-first rather than strong automated translation paths.
+
 ### Complete AWS to Azure/GCP Mapping Table
 
 The resource types below are recognized by the platform. Resources with specialized handlers get dedicated translation logic. Others may use generic fallback or advisory stubs. The **Band** indicates translation confidence: P1 (highest, direct mapping) through M1 (advisory only, manual migration required).
