@@ -65,6 +65,16 @@ export type { GenerateReportOptions } from './confidence/confidence-report-gener
 export { generateTranslationReport } from './report/index.js';
 export type { ReportInputs } from './report/index.js';
 
+// Scenario validation
+export { validateScenarios } from './scenario/scenario-validator.js';
+export type {
+  ScenarioValidationSeverity,
+  ScenarioValidationResult,
+  ScenarioValidationFinding,
+  ScenarioValidationSummary,
+  ScenarioValidationReport,
+} from './scenario/scenario-validator.js';
+
 // Drift detection (TASK-GAP-007)
 export { detectDrift, saveSnapshot, loadSnapshot } from './drift/index.js';
 export type {

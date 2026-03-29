@@ -5,9 +5,10 @@
  *   1. syntax       — fast structural check on generated .tf files
  *   2. policy       — built-in policy engine (via @tla/validator)
  *   3. compliance   — CIS compliance rules (via @tla/validator)
- *   4. semantic     — equivalence checker against discovered IR / translation result
- *   5. confidence   — aggregate confidence scoring
- *   6. cost         — cost-delta estimate when translation result is available
+ *   4. scenario     — scenario-level contract-driven checks
+ *   5. semantic     — equivalence checker against discovered IR / translation result
+ *   6. confidence   — aggregate confidence scoring
+ *   7. cost         — cost-delta estimate when translation result is available
  *
  * Exit codes: 0 — pass (or warn without --strict), 1 — fail (or strict+warn)
  */
@@ -16,21 +17,34 @@ import { resolve, join, extname } from 'node:path';
 import { readFile, readdir } from 'node:fs/promises';
 import type { Command } from 'commander';
 import {
-  evaluatePolicies, checkCompliance, checkEquivalence,
-  scoreConfidence, estimateCostDelta,
-  CIS_BASIC, CIS_ADVANCED, classificationToSemanticStatus,
+  evaluatePolicies,
+  checkCompliance,
+  checkEquivalence,
+  scoreConfidence,
+  estimateCostDelta,
+  validateScenarios,
+  CIS_BASIC,
+  CIS_ADVANCED,
+  classificationToSemanticStatus,
 } from '@tla/validator';
 import { runTerraformValidate } from '@tla/translator';
 import type {
-  PolicyReport, ComplianceReport, ComplianceProfile,
-  ConfidenceReport, ResourceConfidenceInput,
+  PolicyReport,
+  ComplianceReport,
+  ComplianceProfile,
+  ConfidenceReport,
+  ResourceConfidenceInput,
+  ScenarioValidationReport,
 } from '@tla/validator';
 import type {
-  AwsServiceFamily, CanonicalIR, TranslationManifest,
-  TranslationResult, TranslationFinding,
+  AwsServiceFamily,
+  CanonicalIR,
+  TranslationManifest,
+  TranslationResult,
+  TranslationFinding,
 } from '@tla/shared';
 
-type CheckName = 'syntax' | 'policy' | 'compliance' | 'semantic' | 'confidence' | 'cost';
+type CheckName = 'syntax' | 'policy' | 'compliance' | 'scenario' | 'semantic' | 'confidence' | 'cost';
 type OverallResult = 'pass' | 'warn' | 'fail';
 type ComplianceProfileName = 'cis-basic' | 'cis-advanced' | 'none';
 
@@ -43,10 +57,11 @@ interface SyntaxCheckResult {
 }
 interface PolicyCheckResult { result: 'pass' | 'warn' | 'fail'; passed: number; failed: number; warnings: number; duration: number }
 interface ComplianceCheckResult { result: 'pass' | 'warn' | 'fail'; score: number; profile: string; duration: number }
+interface ScenarioCheckResult { result: 'pass' | 'warn' | 'fail'; scenarios: number; blockers: number; warnings: number; infos: number; duration: number }
 interface SemanticCheckResult { preserved: number; transformed: number; partial: number; missing: number; overallScore: number; result: 'pass' | 'warn' | 'fail'; duration: number }
 interface ConfidenceCheckResult { overall: number; band: string; escalationRequired: boolean; result: 'pass' | 'warn' | 'fail'; duration: number }
 interface CostCheckResult { delta: string; deltaPercent: number; caveats: string[]; result: 'pass' | 'warn' | 'fail'; duration: number }
-interface ValidateChecks { syntax?: SyntaxCheckResult; policy?: PolicyCheckResult; compliance?: ComplianceCheckResult; semanticDiff?: SemanticCheckResult; confidence?: ConfidenceCheckResult; cost?: CostCheckResult }
+interface ValidateChecks { syntax?: SyntaxCheckResult; policy?: PolicyCheckResult; compliance?: ComplianceCheckResult; scenario?: ScenarioCheckResult; semanticDiff?: SemanticCheckResult; confidence?: ConfidenceCheckResult; cost?: CostCheckResult }
 interface ValidateResult { success: boolean; overallResult?: OverallResult; checks?: ValidateChecks; findings?: TranslationFinding[]; totalDuration?: number; error?: string; discoveredArtifacts?: string[] }
 interface ValidateOptions { target: 'azure' | 'gcp'; strict: boolean; ir?: string; checks?: string[]; complianceProfile: ComplianceProfileName; format: 'text' | 'json' }
 
@@ -269,6 +284,22 @@ function runComplianceCheck(manifest: TranslationManifest, profileName: Complian
   return { checkResult: { result, score: report.score, profile: profileName, duration: Date.now() - t0 }, report };
 }
 
+function runScenarioCheck(manifest: TranslationManifest): { checkResult: ScenarioCheckResult; report: ScenarioValidationReport } {
+  const t0 = Date.now();
+  const report = validateScenarios(manifest);
+  return {
+    checkResult: {
+      result: report.result,
+      scenarios: report.summary.total,
+      blockers: report.summary.blockers,
+      warnings: report.summary.warnings,
+      infos: report.summary.infos,
+      duration: Date.now() - t0,
+    },
+    report,
+  };
+}
+
 function runSemanticCheck(ir: CanonicalIR, translationResult: TranslationResult): SemanticCheckResult {
   const t0 = Date.now();
   const equivReport = checkEquivalence(ir, translationResult.manifest);
@@ -337,8 +368,12 @@ function runCostCheck(ir: CanonicalIR, translationResult: TranslationResult): Co
 
 function rollupOverallResult(checks: ValidateChecks, strict: boolean): OverallResult {
   const results = [
-    checks.syntax?.result, checks.policy?.result, checks.compliance?.result,
-    checks.semanticDiff?.result, checks.confidence?.result,
+    checks.syntax?.result,
+    checks.policy?.result,
+    checks.compliance?.result,
+    checks.scenario?.result,
+    checks.semanticDiff?.result,
+    checks.confidence?.result,
   ].filter((r): r is 'pass' | 'warn' | 'fail' => r !== undefined);
 
   if (results.some((r) => r === 'fail')) return 'fail';
@@ -375,6 +410,9 @@ function formatValidateText(vr: ValidateResult): string {
   if (c.compliance) {
     lines.push(`Compliance: ${c.compliance.result.toUpperCase()} (score ${String(c.compliance.score)}, profile ${c.compliance.profile}, ${String(c.compliance.duration)}ms)`);
   }
+  if (c.scenario) {
+    lines.push(`Scenario:   ${c.scenario.result.toUpperCase()} (${String(c.scenario.scenarios)} findings, ${String(c.scenario.blockers)} blockers, ${String(c.scenario.warnings)} warnings, ${String(c.scenario.duration)}ms)`);
+  }
   if (c.semanticDiff) {
     const sd = c.semanticDiff;
     lines.push(`Semantic:   ${sd.result.toUpperCase()} (score ${sd.overallScore.toFixed(2)}, preserved ${String(sd.preserved)}, transformed ${String(sd.transformed)}, partial ${String(sd.partial)}, missing ${String(sd.missing)}, ${String(sd.duration)}ms)`);
@@ -408,7 +446,7 @@ function classifyError(err: unknown): string {
 const VALID_TARGETS = new Set(['azure', 'gcp']);
 const VALID_FORMATS = new Set(['text', 'json']);
 const VALID_PROFILES = new Set(['cis-basic', 'cis-advanced', 'none']);
-const VALID_CHECKS = new Set<string>(['syntax', 'policy', 'compliance', 'semantic', 'confidence', 'cost']);
+const VALID_CHECKS = new Set<string>(['syntax', 'policy', 'compliance', 'scenario', 'semantic', 'confidence', 'cost']);
 
 function validateOptions(opts: ValidateOptions): boolean {
   if (!VALID_TARGETS.has(opts.target)) { process.stderr.write('Error: --target must be azure or gcp\n'); process.exitCode = 1; return false; }
@@ -416,7 +454,7 @@ function validateOptions(opts: ValidateOptions): boolean {
   if (!VALID_PROFILES.has(opts.complianceProfile)) { process.stderr.write('Error: --compliance-profile must be cis-basic, cis-advanced, or none\n'); process.exitCode = 1; return false; }
   if (opts.checks) {
     for (const ch of opts.checks) {
-      if (!VALID_CHECKS.has(ch)) { process.stderr.write('Error: --checks must only include syntax, policy, compliance, semantic, confidence, or cost\n'); process.exitCode = 1; return false; }
+      if (!VALID_CHECKS.has(ch)) { process.stderr.write('Error: --checks must only include syntax, policy, compliance, scenario, semantic, confidence, or cost\n'); process.exitCode = 1; return false; }
     }
   }
   return true;
@@ -440,7 +478,7 @@ export function registerValidate(program: Command): void {
         const totalT0 = Date.now();
         const translatedDir = resolve(translatedDirArg);
         const checksToRun: Set<CheckName> = new Set(
-          (opts.checks as CheckName[] | undefined) ?? ['syntax', 'policy', 'compliance', 'semantic', 'confidence', 'cost'],
+          (opts.checks as CheckName[] | undefined) ?? ['syntax', 'policy', 'compliance', 'scenario', 'semantic', 'confidence', 'cost'],
         );
         const strict = opts.strict;
         const checks: ValidateChecks = {};
@@ -491,6 +529,21 @@ export function registerValidate(program: Command): void {
           } else {
             const { checkResult, report } = runComplianceCheck(manifest, opts.complianceProfile);
             checks.compliance = checkResult; complianceReport = report; allFindings.push(...report.findings);
+          }
+        }
+
+        if (checksToRun.has('scenario')) {
+          if (!manifest) {
+            allFindings.push({ resourceId: '*', severity: 'info', code: 'VALIDATE_SCENARIO_SKIP', message: 'Scenario validation skipped — no manifest.json found in translated directory.' });
+          } else {
+            const { checkResult, report } = runScenarioCheck(manifest);
+            checks.scenario = checkResult;
+            allFindings.push(...report.findings.map((f) => ({
+              resourceId: f.resourceId,
+              severity: f.severity,
+              code: f.code,
+              message: `[${f.scenario}] ${f.message}`,
+            })));
           }
         }
 
