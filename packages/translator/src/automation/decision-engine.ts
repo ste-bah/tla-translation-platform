@@ -1,5 +1,6 @@
 import type { TranslationManifest } from '@tla/shared';
 import type { ScenarioValidationReport } from '@tla/validator';
+import { classifySupportedUnattendedScenario } from './unattended-catalogue.js';
 
 export type AutomationMode = 'assisted' | 'guarded-auto' | 'unattended';
 export type AutomationDecisionStatus = 'approved' | 'approval_required' | 'blocked' | 'not_eligible';
@@ -8,6 +9,7 @@ export interface AutomationDecision {
   readonly mode: AutomationMode;
   readonly status: AutomationDecisionStatus;
   readonly reasons: string[];
+  readonly supportedScenario: string | null;
   readonly summary: {
     blockers: number;
     advisory: number;
@@ -30,7 +32,9 @@ export interface AutomationDecisionInput {
 }
 
 function countFallbackResources(manifest: TranslationManifest): number {
-  return manifest.entries.filter((entry) => entry.targetResources.some((r) => r.traceability.translationPath === 'generic-fallback')).length;
+  return manifest.entries.filter((entry) =>
+    entry.targetResources.some((r) => r.traceability.translationPath === 'generic-fallback'),
+  ).length;
 }
 
 function countReviewRequiredContracts(manifest: TranslationManifest): number {
@@ -61,6 +65,9 @@ export function evaluateAutomationDecision(input: AutomationDecisionInput): Auto
   const degradedContracts = countDegradedContracts(input.manifest);
   const scenarioWarnings = input.scenarioReport?.summary.warnings ?? 0;
   const scenarioBlockers = input.scenarioReport?.summary.blockers ?? 0;
+  const supportedScenario = input.mode === 'unattended'
+    ? classifySupportedUnattendedScenario(input.manifest)
+    : null;
 
   const summary = {
     blockers: input.manifest.counts.blocked,
@@ -75,7 +82,7 @@ export function evaluateAutomationDecision(input: AutomationDecisionInput): Auto
   };
 
   if (input.mode === 'assisted') {
-    return { mode: input.mode, status: 'approved', reasons: ['assisted_mode'], summary };
+    return { mode: input.mode, status: 'approved', reasons: ['assisted_mode'], supportedScenario, summary };
   }
 
   const reasons: string[] = [];
@@ -84,7 +91,11 @@ export function evaluateAutomationDecision(input: AutomationDecisionInput): Auto
   if (summary.scenarioBlockers > 0) reasons.push('scenario_blockers');
 
   if (reasons.length > 0) {
-    return { mode: input.mode, status: 'blocked', reasons, summary };
+    return { mode: input.mode, status: 'blocked', reasons, supportedScenario, summary };
+  }
+
+  if (input.mode === 'unattended' && supportedScenario === null) {
+    reasons.push('unsupported_unattended_scenario');
   }
 
   if (summary.advisory > 0) reasons.push('advisory_entries');
@@ -100,9 +111,16 @@ export function evaluateAutomationDecision(input: AutomationDecisionInput): Auto
       mode: input.mode,
       status: input.mode === 'unattended' ? 'not_eligible' : 'approval_required',
       reasons,
+      supportedScenario,
       summary,
     };
   }
 
-  return { mode: input.mode, status: 'approved', reasons: ['all_gates_passed'], summary };
+  return {
+    mode: input.mode,
+    status: 'approved',
+    reasons: ['all_gates_passed'],
+    supportedScenario,
+    summary,
+  };
 }
