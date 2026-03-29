@@ -111,6 +111,17 @@ function evaluateEntry(findings: ScenarioValidationFinding[], entry: ManifestEnt
   }
 }
 
+/**
+ * Evaluate scenario-level validation across all manifest entries.
+ *
+ * Examines contract data (preserved, transformed, degraded, blockers,
+ * reviewRequired, confidenceFactors) to detect cross-cutting risk patterns:
+ * exposure posture, encryption posture, durability/retention, and network
+ * boundary behaviour.
+ *
+ * @param manifest - The translation manifest containing entries with contracts.
+ * @returns A scenario validation report with findings and pass/warn/fail result.
+ */
 export function validateScenarios(manifest: TranslationManifest): ScenarioValidationReport {
   const findings: ScenarioValidationFinding[] = [];
 
