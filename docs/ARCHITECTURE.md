@@ -108,6 +108,9 @@ Every translation run produces the following output artifacts:
 | `audit-log.jsonl` | Append-only audit trail for compliance |
 | `confidence-report.json` | Per-resource confidence scores and escalation flags |
 | `migration-pack.md` | Remediation tasks for blocked/advisory resources (conditional) |
+| `canonical-ir.json` | Source Canonical IR for downstream validation and traceability |
+| `translation-result.json` | Full translation result for semantic diff and cost checks |
+| `automation-decision.json` | Automation gate decision (when `--mode` is `guarded-auto` or `unattended`) |
 
 ---
 
@@ -419,7 +422,7 @@ graph LR
 
 ## 7. Validation Pipeline
 
-The validator runs up to 6 checks in strict dependency order. Each check can be individually selected. Downstream checks are skipped if an upstream dependency is unavailable.
+The validator runs up to 7 checks in strict dependency order. Each check can be individually selected. Downstream checks are skipped if an upstream dependency is unavailable.
 
 ```mermaid
 %%{init: {"theme": "neutral"}}%%
@@ -429,13 +432,15 @@ flowchart TD
     Input --> Syntax["<b>1. Syntax Check</b><br/>HCL parse validity +<br/>optional terraform validate<br/>(skipped if binary missing)"]
     Syntax --> Policy["<b>2. Policy Check</b><br/>OPA policy engine<br/>+ built-in rules"]
     Policy --> Compliance["<b>3. Compliance Check</b><br/>CIS Basic / Advanced<br/>8 built-in rules"]
-    Compliance --> Semantic["<b>4. Semantic Diff</b><br/>Equivalence checking<br/>(requires IR file)"]
-    Semantic --> Confidence["<b>5. Confidence Scoring</b><br/>Per-resource + stack-level<br/>(requires IR file)"]
-    Confidence --> Cost["<b>6. Cost Estimation</b><br/>Delta analysis<br/>(requires IR file)"]
+    Compliance --> Scenario["<b>4. Scenario Check</b><br/>Contract-driven<br/>scenario validation"]
+    Scenario --> Semantic["<b>5. Semantic Diff</b><br/>Equivalence checking<br/>(requires IR file)"]
+    Semantic --> Confidence["<b>6. Confidence Scoring</b><br/>Per-resource + stack-level<br/>(requires IR file)"]
+    Confidence --> Cost["<b>7. Cost Estimation</b><br/>Delta analysis<br/>(requires IR file)"]
 
     Syntax -->|"fail"| Report["Validation Report"]
     Policy -->|"findings"| Report
     Compliance -->|"findings"| Report
+    Scenario -->|"findings"| Report
     Semantic -->|"findings"| Report
     Confidence -->|"report"| Report
     Cost -->|"report"| Report
@@ -443,6 +448,7 @@ flowchart TD
     style Syntax fill:#e8f5e9
     style Policy fill:#fff3e0
     style Compliance fill:#fff3e0
+    style Scenario fill:#fff3e0
     style Semantic fill:#e1f5fe
     style Confidence fill:#f3e5f5
     style Cost fill:#fce4ec
@@ -455,9 +461,10 @@ flowchart TD
 | 1 | **Syntax** | `.tf` files, optional `terraform` binary | HCL parser + `terraform validate` | Parse errors, validation diagnostics |
 | 2 | **Policy** | Translated resources | `evaluatePolicies`, `evaluateOpa` | `PolicyReport` with pass/fail per rule |
 | 3 | **Compliance** | Translated resources | `checkCompliance` with CIS profiles | `ComplianceReport` (encryption, network, IAM, logging) |
-| 4 | **Semantic Diff** | IR file | `checkEquivalence` (presence, attributes, intents, references) | `EquivalenceReport` per resource |
-| 5 | **Confidence** | IR file + upstream results | `scoreConfidence` | `ConfidenceReport` with per-resource, family, and stack scores |
-| 6 | **Cost** | IR file | `estimateCostDelta` | `CostDeltaReport` with per-resource cost comparisons |
+| 4 | **Scenario** | `manifest.json` | `validateScenarios` | `ScenarioValidationReport` with per-scenario findings |
+| 5 | **Semantic Diff** | IR file | `checkEquivalence` (presence, attributes, intents, references) | `EquivalenceReport` per resource |
+| 6 | **Confidence** | IR file + upstream results | `scoreConfidence` | `ConfidenceReport` with per-resource, family, and stack scores |
+| 7 | **Cost** | IR file | `estimateCostDelta` | `CostDeltaReport` with per-resource cost comparisons |
 
 ### Built-in Compliance Rules (CIS)
 
@@ -487,7 +494,7 @@ The validation pipeline has different depths depending on available artifacts an
 
 **Auto-discovery**: The `validate` tool automatically loads `manifest.json` and `canonical-ir.json` from the translated output directory. When these files exist (they are written by both CLI and MCP translate), all six checks can run. When they are missing, affected checks are skipped with explicit findings (e.g., `VALIDATE_POLICY_SKIP`).
 
-**Confidence scoring breakdown** (new in Phase 16):
+**Confidence scoring breakdown**:
 
 Each resource receives four sub-scores:
 - **Mapping** (0-1): base confidence from registry entry

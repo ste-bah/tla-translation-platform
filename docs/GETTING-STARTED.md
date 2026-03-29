@@ -166,7 +166,8 @@ Open `azure-output/manifest.json`. It contains:
         }
       ],
       "confidence": 0.85,
-      "findings": []
+      "findings": [],
+      "contract": null
     }
   ],
   "findings": [],
@@ -180,6 +181,7 @@ Key fields:
 - **findings** -- per-resource warnings, blockers, or informational notes
 - **targetResources** -- the Azure/GCP resources generated for this source resource
 - **traceability** -- links back to the source resource and engine used
+- **contract** -- behaviour contract declaring preserved, transformed, degraded, and blocked properties (null when no contract emitted)
 
 ## Understanding the Output
 
@@ -197,6 +199,9 @@ The output directory contains the following files:
 | `audit-log.jsonl` | Append-only audit trail for compliance |
 | `confidence-report.json` | Per-resource confidence scores and escalation flags |
 | `migration-pack.md` | Remediation tasks for blocked/advisory resources (conditional) |
+| `canonical-ir.json` | Source Canonical IR for downstream validation |
+| `translation-result.json` | Full translation result for semantic diff and cost checks |
+| `automation-decision.json` | Automation gate decision (when `--mode` is not `assisted`) |
 
 For Azure, `providers.tf` includes the required `features {}` block. For GCP, it includes `project` and `region` from variables.
 
@@ -227,9 +232,13 @@ Check types:
 
 | Check | What It Does |
 |-------|--------------|
-| `syntax` | Parses the generated HCL for structural correctness |
+| `syntax` | Parses generated HCL for structural correctness, optional terraform validate |
 | `policy` | Verifies security policies (no public access by default, encryption enabled) |
-| `compliance` | Checks provider-specific requirements (Azure `features {}` block, GCP API enablement) |
+| `compliance` | Checks CIS benchmark compliance (Basic: 5 rules, Advanced: 8 rules) |
+| `scenario` | Validates behaviour contracts (exposure, encryption, durability, network boundary) |
+| `semantic` | Compares source and target resource graphs for equivalence (requires IR) |
+| `confidence` | Aggregate confidence score with per-resource breakdown (requires IR) |
+| `cost` | Estimates monthly cost delta between source and target (requires IR) |
 
 If you have Terraform or OpenTofu installed, you can also run native validation:
 
@@ -270,6 +279,16 @@ GCP-specific behavior:
 - Regions map through `AWS_TO_GCP_REGION` (e.g., `us-east-1` -> `us-east1`)
 - The provider block includes `project` (from `var.project_id`) and `region`
 - Required API comments are added per resource type
+
+### Automation Modes
+
+The translate command supports three automation modes via `--mode`:
+
+| Mode | Behaviour |
+|------|-----------|
+| `assisted` (default) | Human-driven workflow. No automation gate applied. |
+| `guarded-auto` | Requires approval when contracts are degraded, blockers exist, or confidence is below 75%. Writes `automation-decision.json`. |
+| `unattended` | Only approved for constrained proven scenarios (single S3 bucket, single private EC2). Fails for unsupported workloads. |
 
 ## Next Steps
 
