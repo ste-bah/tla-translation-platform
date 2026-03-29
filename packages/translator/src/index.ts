@@ -6,6 +6,15 @@ export { buildTranslationReport } from './compiler/report-writer.js';
 export { buildConfidenceReport } from './compiler/confidence-report.js';
 export type { ConfidenceBreakdown, ConfidenceReport, ResourceConfidence } from './compiler/confidence-report.js';
 
+// Automation decisions
+export { evaluateAutomationDecision } from './automation/decision-engine.js';
+export type {
+  AutomationMode,
+  AutomationDecisionStatus,
+  AutomationDecision,
+  AutomationDecisionInput,
+} from './automation/decision-engine.js';
+
 // Engines
 export { engineRegistry, getEngine } from './engines/index.js';
 
