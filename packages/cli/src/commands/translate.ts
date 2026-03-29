@@ -1,16 +1,3 @@
-/**
- * translate command — drives the full TLA translation pipeline from the CLI.
- *
- * Pipeline:
- *   parse HCL (file | directory)
- *     -> build dependency graph
- *     -> emit Canonical IR
- *     -> (assessment) return inventory
- *     -> (full/selected) run TranslationCompiler
- *     -> write files to outputDir
- *     -> format output to stdout
- */
-
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { stat, mkdir, writeFile } from 'node:fs/promises';
@@ -23,12 +10,22 @@ import {
   identifyAwsServices,
   extractPlanAddresses,
 } from '@tla/ingestion';
-import { TranslationCompiler, buildTranslationReport, buildConfidenceReport, buildAuditEntry, appendAuditEntry, generateRemediationPack, buildMigrationPack } from '@tla/translator';
+import {
+  TranslationCompiler,
+  buildTranslationReport,
+  buildConfidenceReport,
+  buildAuditEntry,
+  appendAuditEntry,
+  generateRemediationPack,
+  buildMigrationPack,
+  evaluateAutomationDecision,
+} from '@tla/translator';
 import {
   RegistryApi,
   loadRegistryFromDirectory,
   validateRegistryEntries,
 } from '@tla/registry';
+import { validateScenarios } from '@tla/validator';
 import type {
   CanonicalIR,
   TranslationResult,
@@ -36,10 +33,7 @@ import type {
   TranslationFinding,
   ServiceInventory,
 } from '@tla/shared';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import type { AutomationDecision, AutomationMode } from '@tla/translator';
 
 interface TranslateOptions {
   target: 'azure' | 'gcp';
@@ -52,6 +46,7 @@ interface TranslateOptions {
   format: 'text' | 'json';
   registry: string;
   assess: boolean;
+  mode: AutomationMode;
 }
 
 interface ManifestSummary {
@@ -71,21 +66,11 @@ interface InventorySummary {
   unknown: number;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Detects whether a path points to a file or directory.
- */
 async function detectSourceKind(sourcePath: string): Promise<'file' | 'directory'> {
   const info = await stat(sourcePath);
   return info.isDirectory() ? 'directory' : 'file';
 }
 
-/**
- * Builds an inventory summary from raw HCL ASTs.
- */
 function buildInventorySummary(inventory: ServiceInventory): InventorySummary {
   const byFamily: Record<string, number> = {};
   for (const service of inventory.identified_services) {
@@ -106,9 +91,6 @@ function buildInventorySummary(inventory: ServiceInventory): InventorySummary {
   };
 }
 
-/**
- * Formats an inventory assessment as plain text.
- */
 function formatInventoryText(inventory: InventorySummary): string {
   const lines: string[] = [];
   lines.push('Assessment Inventory');
@@ -138,9 +120,6 @@ function formatInventoryText(inventory: InventorySummary): string {
   return lines.join('\n');
 }
 
-/**
- * Converts a full TranslationManifest to a condensed summary.
- */
 function buildManifestSummary(manifest: TranslationManifest): ManifestSummary {
   return {
     translated: manifest.counts.translated,
@@ -151,14 +130,12 @@ function buildManifestSummary(manifest: TranslationManifest): ManifestSummary {
   };
 }
 
-/**
- * Formats a translation result as plain text.
- */
 function formatTranslationText(
   result: TranslationResult,
   outputDir: string,
   manifestSummary: ManifestSummary,
   writtenArtifacts: string[],
+  automationDecision?: AutomationDecision,
 ): string {
   const lines: string[] = [];
   lines.push('Translation Complete');
@@ -167,6 +144,10 @@ function formatTranslationText(
   lines.push(`Target:     ${result.target}`);
   lines.push(`Output dir: ${outputDir}`);
   lines.push(`Confidence: ${String(Math.round(result.manifest.confidenceOverall * 100))}%`);
+  if (automationDecision) {
+    lines.push(`Mode:       ${automationDecision.mode}`);
+    lines.push(`Automation: ${automationDecision.status}`);
+  }
   lines.push('');
   lines.push('Manifest:');
   lines.push(`  Translated: ${String(manifestSummary.translated)}`);
@@ -175,6 +156,14 @@ function formatTranslationText(
   lines.push(`  Blocked:    ${String(manifestSummary.blocked)}`);
   lines.push(`  Advisory:   ${String(manifestSummary.advisory)}`);
   lines.push('');
+
+  if (automationDecision && automationDecision.reasons.length > 0) {
+    lines.push('Automation reasons:');
+    for (const reason of automationDecision.reasons) {
+      lines.push(`  ${reason}`);
+    }
+    lines.push('');
+  }
 
   const fileNames = [...writtenArtifacts];
   if (fileNames.length > 0) {
@@ -200,9 +189,6 @@ function formatTranslationText(
   return lines.join('\n');
 }
 
-/**
- * Filters a Canonical IR to only include resources matching `selectedResources`.
- */
 function filterIr(ir: CanonicalIR, selectedResources: string[]): CanonicalIR {
   const selected = new Set(selectedResources);
   const filteredResources = ir.resources.filter(
@@ -219,10 +205,6 @@ function filterIr(ir: CanonicalIR, selectedResources: string[]): CanonicalIR {
   };
 }
 
-/**
- * Filters a Canonical IR to only include resources whose ID starts with any
- * of the provided stack prefixes (e.g. `module.networking`).
- */
 function filterIrByStacks(ir: CanonicalIR, stacks: string[]): CanonicalIR {
   const prefixes = stacks.map((s) => (s.endsWith('.') ? s : `${s}.`));
   const filteredResources = ir.resources.filter((r) =>
@@ -242,15 +224,8 @@ function filterIrByStacks(ir: CanonicalIR, stacks: string[]): CanonicalIR {
   };
 }
 
-/**
- * Filters a Canonical IR to only include resources that belong to any of the
- * provided module names. Uses `ir.modules` membership first; falls back to
- * resource ID prefix `module.<name>.` when no module entry matches.
- */
 function filterIrByModules(ir: CanonicalIR, moduleNames: string[]): CanonicalIR {
   const nameSet = new Set(moduleNames);
-
-  // Collect resource IDs from matching ir.modules entries
   const memberIds = new Set<string>();
   const matchedModules: typeof ir.modules = [];
   for (const mod of ir.modules) {
@@ -262,16 +237,13 @@ function filterIrByModules(ir: CanonicalIR, moduleNames: string[]): CanonicalIR 
     }
   }
 
-  // Fallback: for any module name that had no ir.modules entry, match by ID prefix
   const modulesWithEntries = new Set(matchedModules.map((m) => m.name));
   const fallbackPrefixes = moduleNames
     .filter((n) => !modulesWithEntries.has(n))
     .map((n) => `module.${n}.`);
 
   const filteredResources = ir.resources.filter(
-    (r) =>
-      memberIds.has(r.id) ||
-      fallbackPrefixes.some((prefix) => r.id.startsWith(prefix)),
+    (r) => memberIds.has(r.id) || fallbackPrefixes.some((prefix) => r.id.startsWith(prefix)),
   );
   const filteredIds = new Set(filteredResources.map((r) => r.id));
 
@@ -287,11 +259,6 @@ function filterIrByModules(ir: CanonicalIR, moduleNames: string[]): CanonicalIR 
   };
 }
 
-/**
- * Filters a Canonical IR to only include resources whose address appears in
- * the provided plan address set. Matches against `${sourceType}.${id}` first
- * (the standard terraform address format), then falls back to bare `id`.
- */
 function filterIrByAddresses(ir: CanonicalIR, planAddresses: Set<string>): CanonicalIR {
   const filteredResources = ir.resources.filter(
     (r) => planAddresses.has(`${r.sourceType}.${r.id}`) || planAddresses.has(r.id),
@@ -307,14 +274,6 @@ function filterIrByAddresses(ir: CanonicalIR, planAddresses: Set<string>): Canon
   };
 }
 
-// ---------------------------------------------------------------------------
-// Pipeline helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parses HCL from a file or directory and returns the AST array.
- * Returns an empty array when no .tf files are found in a directory.
- */
 async function parseHclSource(
   sourcePath: string,
 ): Promise<Awaited<ReturnType<typeof parseHclDirectory>>['asts']> {
@@ -327,29 +286,22 @@ async function parseHclSource(
   return result.asts;
 }
 
-/**
- * Runs the full compile+write pipeline for scope=full or scope=selected.
- * Returns the TranslationResult and the resolved output directory path.
- */
 async function runFullTranslation(
   asts: Awaited<ReturnType<typeof parseHclDirectory>>['asts'],
   opts: TranslateOptions,
   scope: 'full' | 'selected' | 'stack' | 'module',
   sourcePath: string,
-): Promise<{ result: TranslationResult; outputDir: string; writtenArtifacts: string[] }> {
-  // Load registry
+): Promise<{ result: TranslationResult; outputDir: string; writtenArtifacts: string[]; automationDecision?: AutomationDecision }> {
   const registryDir = resolve(opts.registry);
   const registry = new RegistryApi(registryDir, loadRegistryFromDirectory, validateRegistryEntries);
   await registry.init();
   const registryVersion = registry.search({})[0]?.registry_version ?? '1.0.0';
 
-  // Build dependency graph and emit Canonical IR
   const graph = new DependencyGraph();
   graph.build(asts);
   const emitter = new IrEmitter(registry);
   const { ir: fullIr } = emitter.emit(asts, graph);
 
-  // Apply resource filter based on scope
   let ir: CanonicalIR;
   if (scope === 'selected' && opts.selected && opts.selected.length > 0) {
     ir = filterIr(fullIr, opts.selected);
@@ -361,13 +313,11 @@ async function runFullTranslation(
     ir = fullIr;
   }
 
-  // Apply plan-based address filter (narrows to resources present in the plan)
   if (opts.plan) {
     const planAddresses = await extractPlanAddresses(opts.plan);
     ir = filterIrByAddresses(ir, planAddresses);
   }
 
-  // Run translation compiler
   const startTime = Date.now();
   const compiler = new TranslationCompiler(registry);
   const result = compiler.translate(ir, {
@@ -377,17 +327,14 @@ async function runFullTranslation(
     sortKeys: true,
   });
 
-  // Determine / create output directory and write generated files
   const outputDir = resolve(opts.output ?? `./tla-output-${opts.target}`);
   await mkdir(outputDir, { recursive: true });
 
   const writtenArtifacts: string[] = [];
 
-  // Persist the Canonical IR so validation can auto-discover it
   await writeFile(resolve(outputDir, 'canonical-ir.json'), JSON.stringify(ir, null, 2), 'utf-8');
   writtenArtifacts.push('canonical-ir.json');
 
-  // Write translation-result.json for downstream validation (semantic diff, cost)
   const translationResultJson = JSON.stringify(result, null, 2);
   await writeFile(resolve(outputDir, 'translation-result.json'), translationResultJson, 'utf-8');
   writtenArtifacts.push('translation-result.json');
@@ -397,17 +344,14 @@ async function runFullTranslation(
     writtenArtifacts.push(fileName);
   }
 
-  // Write manifest.json alongside the generated .tf files
   const manifestJson = JSON.stringify(result.manifest, null, 2);
   await writeFile(resolve(outputDir, 'manifest.json'), manifestJson, 'utf-8');
   writtenArtifacts.push('manifest.json');
 
-  // Write translation-report.md
   const report = buildTranslationReport(result, sourcePath, opts.target, outputDir);
   await writeFile(resolve(outputDir, 'translation-report.md'), report, 'utf-8');
   writtenArtifacts.push('translation-report.md');
 
-  // Build artifact hashes for audit integrity
   const artifactHashes: Record<string, string> = {};
   const irJson = JSON.stringify(ir, null, 2);
   artifactHashes['canonical-ir.json'] = createHash('sha256').update(irJson).digest('hex');
@@ -417,12 +361,10 @@ async function runFullTranslation(
   }
   artifactHashes['manifest.json'] = createHash('sha256').update(manifestJson).digest('hex');
 
-  // Write audit trail entry (append-only JSONL)
   const auditEntry = buildAuditEntry(result, sourcePath, opts.target, Date.now() - startTime, manifestJson, artifactHashes);
   await appendAuditEntry(outputDir, auditEntry);
   writtenArtifacts.push('audit-log.jsonl');
 
-  // Generate migration pack for blocked/advisory resources
   const remediationPack = generateRemediationPack(result.manifest, ir);
   const migrationPackMd = buildMigrationPack(remediationPack);
   if (migrationPackMd !== null) {
@@ -430,22 +372,26 @@ async function runFullTranslation(
     writtenArtifacts.push('migration-pack.md');
   }
 
-  // Write confidence-report.json
   const confidenceReport = buildConfidenceReport(result);
-  await writeFile(
-    resolve(outputDir, 'confidence-report.json'),
-    JSON.stringify(confidenceReport, null, 2),
-    'utf-8',
-  );
+  await writeFile(resolve(outputDir, 'confidence-report.json'), JSON.stringify(confidenceReport, null, 2), 'utf-8');
   writtenArtifacts.push('confidence-report.json');
 
-  return { result, outputDir, writtenArtifacts };
+  let automationDecision: AutomationDecision | undefined;
+  if (opts.mode !== 'assisted') {
+    const scenarioReport = validateScenarios(result.manifest);
+    automationDecision = evaluateAutomationDecision({
+      mode: opts.mode,
+      manifest: result.manifest,
+      scenarioReport,
+      confidenceOverall: confidenceReport.confidenceOverall,
+    });
+    await writeFile(resolve(outputDir, 'automation-decision.json'), JSON.stringify(automationDecision, null, 2), 'utf-8');
+    writtenArtifacts.push('automation-decision.json');
+  }
+
+  return { result, outputDir, writtenArtifacts, automationDecision };
 }
 
-/**
- * Validates CLI option values and writes an error + sets exit code on failure.
- * Returns false when validation fails so the caller can return early.
- */
 function validateOptions(opts: TranslateOptions): boolean {
   if (!['azure', 'gcp'].includes(opts.target)) {
     process.stderr.write('Error: --target must be azure or gcp\n');
@@ -454,6 +400,11 @@ function validateOptions(opts: TranslateOptions): boolean {
   }
   if (!['full', 'assessment', 'selected', 'stack', 'module'].includes(opts.scope)) {
     process.stderr.write('Error: --scope must be full, assessment, selected, stack, or module\n');
+    process.exitCode = 1;
+    return false;
+  }
+  if (!['assisted', 'guarded-auto', 'unattended'].includes(opts.mode)) {
+    process.stderr.write('Error: --mode must be assisted, guarded-auto, or unattended\n');
     process.exitCode = 1;
     return false;
   }
@@ -470,9 +421,6 @@ function validateOptions(opts: TranslateOptions): boolean {
   return true;
 }
 
-/**
- * Classifies a caught error into a safe, non-reflective message for stderr.
- */
 function classifyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (raw.includes('ENOENT')) {
@@ -484,13 +432,6 @@ function classifyError(err: unknown): string {
   return 'Translation failed unexpectedly. Check inputs and try again.';
 }
 
-// ---------------------------------------------------------------------------
-// Command registration
-// ---------------------------------------------------------------------------
-
-/**
- * Registers the `translate` command on a Commander program.
- */
 export function registerTranslate(program: Command): void {
   program
     .command('translate')
@@ -503,6 +444,7 @@ export function registerTranslate(program: Command): void {
     .option('--stacks <stacks...>', 'Stack/module prefixes for scope=stack (e.g. module.networking)')
     .option('--modules <modules...>', 'Module names for scope=module (e.g. vpc)')
     .option('--plan <path>', 'Path to terraform plan JSON; only resources present in the plan are translated')
+    .option('--mode <mode>', 'Automation mode: assisted, guarded-auto, or unattended', 'assisted')
     .option('-f, --format <format>', 'Output format: text or json', 'text')
     .option(
       '-r, --registry <dir>',
@@ -534,9 +476,10 @@ export function registerTranslate(program: Command): void {
           return;
         }
 
-        const { result, outputDir, writtenArtifacts } = await runFullTranslation(asts, opts, scope, sourcePath);
+        const { result, outputDir, writtenArtifacts, automationDecision } = await runFullTranslation(asts, opts, scope, sourcePath);
         const manifestSummary = buildManifestSummary(result.manifest);
         const hasBlockers = result.findings.some((f: TranslationFinding) => f.severity === 'blocker');
+        const automationGateFailed = automationDecision !== undefined && automationDecision.status !== 'approved';
 
         if (opts.format === 'json') {
           const output = {
@@ -546,14 +489,15 @@ export function registerTranslate(program: Command): void {
             files: [...writtenArtifacts].sort(),
             manifest: manifestSummary,
             confidence: result.manifest.confidenceOverall,
+            automation: automationDecision,
             findings: result.findings,
           };
           process.stdout.write(JSON.stringify(output, null, 2) + '\n');
         } else {
-          process.stdout.write(formatTranslationText(result, outputDir, manifestSummary, writtenArtifacts) + '\n');
+          process.stdout.write(formatTranslationText(result, outputDir, manifestSummary, writtenArtifacts, automationDecision) + '\n');
         }
 
-        if (hasBlockers) {
+        if (hasBlockers || automationGateFailed) {
           process.exitCode = 1;
         }
       } catch (err: unknown) {
