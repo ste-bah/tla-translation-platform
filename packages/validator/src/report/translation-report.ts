@@ -60,13 +60,20 @@ function severityEmoji(severity: string): string {
   switch (severity) {
     case 'blocker': return '❌';
     case 'warning': return '⚠️';
-    case 'info':    return 'ℹ️';
-    default:        return '❓';
+    case 'info': return 'ℹ️';
+    default: return '❓';
   }
 }
 
 function truncate(s: string, maxLen = 80): string {
   return s.length > maxLen ? s.slice(0, maxLen - 3) + '...' : s;
+}
+
+function renderContractList(items: readonly string[] | undefined): string[] {
+  if (!items || items.length === 0) {
+    return ['- none'];
+  }
+  return items.map((item) => `- ${item}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -86,8 +93,8 @@ function buildExecutiveSummary(manifest: TranslationManifest): string {
       '',
       '## Executive Summary',
       '',
-      `| Field                 | Value                          |`,
-      `|-----------------------|--------------------------------|`,
+      '| Field                 | Value                          |',
+      '|-----------------------|--------------------------------|',
       `| Target Provider       | ${target}                      |`,
       `| Report Version        | ${version}                     |`,
       `| Registry Version      | ${registryVersion}             |`,
@@ -131,7 +138,7 @@ function buildResourceInventory(manifest: TranslationManifest): string {
     }
 
     const rows = entries.map((e: ManifestEntry) => {
-      const targetTypes = e.targetResources.map(r => r.targetType).join(', ') || '—';
+      const targetTypes = e.targetResources.map((r) => r.targetType).join(', ') || '—';
       return `| \`${e.sourceId}\` | \`${e.sourceType}\` | ${statusEmoji(e.status)} ${e.status} | ${truncate(targetTypes, 40)} | ${pct(e.confidence)} |`;
     });
 
@@ -149,22 +156,76 @@ function buildResourceInventory(manifest: TranslationManifest): string {
 }
 
 // ---------------------------------------------------------------------------
-// Section 3: Blocked Resources
+// Section 3: Behaviour Contracts
+// ---------------------------------------------------------------------------
+
+function buildBehaviorContracts(manifest: TranslationManifest): string {
+  try {
+    const entriesWithContracts = manifest.entries.filter((e) => e.contract !== null && e.contract !== undefined);
+    if (entriesWithContracts.length === 0) {
+      return '## Behaviour Contract Summary\n\n_No behaviour contracts recorded._\n\n';
+    }
+
+    const sections: string[] = [
+      '## Behaviour Contract Summary',
+      '',
+      '> This section summarises what the translator claims was preserved, transformed, degraded, blocked, or left for review.',
+      '',
+    ];
+
+    for (const entry of entriesWithContracts) {
+      const contract = entry.contract;
+      if (!contract) continue;
+
+      sections.push(`### \`${entry.sourceId}\` (${entry.sourceType})`);
+      sections.push('');
+      sections.push(`- status: ${entry.status}`);
+      sections.push(`- confidence: ${pct(entry.confidence)}`);
+      sections.push(`- targets: ${contract.targetIds.length > 0 ? contract.targetIds.map((id) => `\`${id}\``).join(', ') : 'none'}`);
+      sections.push('');
+      sections.push('**Preserved**');
+      sections.push(...renderContractList(contract.preserved));
+      sections.push('');
+      sections.push('**Transformed**');
+      sections.push(...renderContractList(contract.transformed));
+      sections.push('');
+      sections.push('**Degraded**');
+      sections.push(...renderContractList(contract.degraded));
+      sections.push('');
+      sections.push('**Blockers**');
+      sections.push(...renderContractList(contract.blockers));
+      sections.push('');
+      sections.push('**Review required**');
+      sections.push(...renderContractList(contract.reviewRequired));
+      sections.push('');
+      sections.push('**Confidence factors**');
+      sections.push(...renderContractList(contract.confidenceFactors));
+      sections.push('');
+    }
+
+    return sections.join('\n');
+  } catch (_err) {
+    return '## Behaviour Contract Summary\n\n_Error generating section._\n\n';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Section 4: Blocked Resources
 // ---------------------------------------------------------------------------
 
 function buildBlockedResources(manifest: TranslationManifest): string {
   try {
-    const blocked = manifest.entries.filter(e => e.status === 'blocked');
+    const blocked = manifest.entries.filter((e) => e.status === 'blocked');
     if (blocked.length === 0) {
       return '## Blocked Resources\n\n_No blocked resources._\n\n';
     }
 
     const rows = blocked.map((e: ManifestEntry) => {
-      const blockerFindings = e.findings.filter(f => f.severity === 'blocker');
+      const blockerFindings = e.findings.filter((f) => f.severity === 'blocker');
       const reason = blockerFindings.length > 0
-        ? truncate(blockerFindings[0].message, 70)
+        ? truncate(blockerFindings[0]!.message, 70)
         : 'No blocker message recorded';
-      const codes = blockerFindings.map(f => f.code).join(', ') || '—';
+      const codes = blockerFindings.map((f) => f.code).join(', ') || '—';
       return `| \`${e.sourceId}\` | \`${e.sourceType}\` | ${reason} | ${codes} |`;
     });
 
@@ -184,22 +245,22 @@ function buildBlockedResources(manifest: TranslationManifest): string {
 }
 
 // ---------------------------------------------------------------------------
-// Section 4: Advisory Resources
+// Section 5: Advisory Resources
 // ---------------------------------------------------------------------------
 
 function buildAdvisoryResources(manifest: TranslationManifest): string {
   try {
-    const advisory = manifest.entries.filter(e => e.status === 'advisory');
+    const advisory = manifest.entries.filter((e) => e.status === 'advisory');
     if (advisory.length === 0) {
       return '## Advisory Resources\n\n_No advisory resources._\n\n';
     }
 
     const rows = advisory.map((e: ManifestEntry) => {
-      const advisoryFindings = e.findings.filter(f => f.severity === 'warning');
+      const advisoryFindings = e.findings.filter((f) => f.severity === 'warning');
       const summary = advisoryFindings.length > 0
-        ? truncate(advisoryFindings[0].message, 70)
+        ? truncate(advisoryFindings[0]!.message, 70)
         : 'Manual review recommended';
-      const codes = advisoryFindings.map(f => f.code).join(', ') || '—';
+      const codes = advisoryFindings.map((f) => f.code).join(', ') || '—';
       return `| \`${e.sourceId}\` | \`${e.sourceType}\` | ${summary} | ${codes} |`;
     });
 
@@ -219,7 +280,7 @@ function buildAdvisoryResources(manifest: TranslationManifest): string {
 }
 
 // ---------------------------------------------------------------------------
-// Section 5: Equivalence Analysis
+// Section 6: Equivalence Analysis
 // ---------------------------------------------------------------------------
 
 function buildEquivalenceAnalysis(equivalence: EquivalenceReport): string {
@@ -234,7 +295,7 @@ function buildEquivalenceAnalysis(equivalence: EquivalenceReport): string {
     const rows = equivalence.records
       .sort((a, b) => a.overallScore - b.overallScore)
       .slice(0, 20)
-      .map(r => {
+      .map((r) => {
         const classIcon = r.classification === 'equivalent' ? '✅'
           : r.classification === 'partial' ? '🔶'
           : r.classification === 'degraded' ? '⚠️'
@@ -272,13 +333,13 @@ function buildEquivalenceAnalysis(equivalence: EquivalenceReport): string {
 }
 
 // ---------------------------------------------------------------------------
-// Section 6: Confidence Breakdown
+// Section 7: Confidence Breakdown
 // ---------------------------------------------------------------------------
 
 function buildConfidenceBreakdown(confidence: ConfidenceReport): string {
   try {
-    const bandLabel = (b: string) => b === 'high' ? 'HIGH' : b === 'medium' ? 'MEDIUM' : b === 'low' ? 'LOW' : 'VERY LOW';
-    const bandEmoji = (b: string) => b === 'high' ? '✅' : b === 'medium' ? '⚠️' : b === 'low' ? '🔶' : '❌';
+    const bandLabel = (b: string) => (b === 'high' ? 'HIGH' : b === 'medium' ? 'MEDIUM' : b === 'low' ? 'LOW' : 'VERY LOW');
+    const bandEmoji = (b: string) => (b === 'high' ? '✅' : b === 'medium' ? '⚠️' : b === 'low' ? '🔶' : '❌');
 
     const escalationNote = confidence.escalationRequired
       ? '> **ESCALATION REQUIRED** — one or more resources have confidence < 60%. Human review is mandatory.\n\n'
@@ -308,14 +369,16 @@ function buildConfidenceBreakdown(confidence: ConfidenceReport): string {
       `| Semantic Factor (avg) | ${pct(f.avgSemanticFactor)} |`,
       `| Policy Factor (avg) | ${pct(f.avgPolicyFactor)} |`,
       '',
-      ...(familyRows.length > 0 ? [
-        '### Confidence by Service Family',
-        '',
-        '| Service Family | Score | Band |',
-        '|----------------|-------|------|',
-        ...familyRows,
-        '',
-      ] : []),
+      ...(familyRows.length > 0
+        ? [
+            '### Confidence by Service Family',
+            '',
+            '| Service Family | Score | Band |',
+            '|----------------|-------|------|',
+            ...familyRows,
+            '',
+          ]
+        : []),
     ].join('\n');
   } catch (_err) {
     return '## Confidence Breakdown\n\n_Error generating section._\n\n';
@@ -323,22 +386,22 @@ function buildConfidenceBreakdown(confidence: ConfidenceReport): string {
 }
 
 // ---------------------------------------------------------------------------
-// Section 7: Policy & Compliance
+// Section 8: Policy & Compliance
 // ---------------------------------------------------------------------------
 
 function buildPolicyCompliance(manifest: TranslationManifest): string {
   try {
     const policyFindings = manifest.findings.filter(
-      f => f.code.startsWith('POLICY_') || f.code.startsWith('COMPLIANCE_'),
+      (f) => f.code.startsWith('POLICY_') || f.code.startsWith('COMPLIANCE_'),
     );
 
     if (policyFindings.length === 0) {
       return '## Policy & Compliance\n\n_No policy or compliance findings recorded._\n\n';
     }
 
-    const blockers = policyFindings.filter(f => f.severity === 'blocker');
-    const warnings = policyFindings.filter(f => f.severity === 'warning');
-    const infos    = policyFindings.filter(f => f.severity === 'info');
+    const blockers = policyFindings.filter((f) => f.severity === 'blocker');
+    const warnings = policyFindings.filter((f) => f.severity === 'warning');
+    const infos = policyFindings.filter((f) => f.severity === 'info');
 
     const rows = policyFindings.slice(0, 30).map((f: TranslationFinding) => {
       return `| \`${f.resourceId}\` | ${severityEmoji(f.severity)} ${f.severity} | \`${f.code}\` | ${truncate(f.message, 60)} |`;
@@ -364,7 +427,7 @@ function buildPolicyCompliance(manifest: TranslationManifest): string {
 }
 
 // ---------------------------------------------------------------------------
-// Section 8: Cost Estimate
+// Section 9: Cost Estimate
 // ---------------------------------------------------------------------------
 
 function buildCostEstimate(costDelta: CostDeltaReport): string {
@@ -375,7 +438,7 @@ function buildCostEstimate(costDelta: CostDeltaReport): string {
     const deltaLabel = `${deltaSign}${usd(delta)} (${deltaSign}${deltaPercent.toFixed(1)}%)`;
     const trendEmoji = delta < 0 ? '✅' : delta > 0 ? '⚠️' : '➡️';
 
-    const perResourceRows = perResource.slice(0, 20).map(r => {
+    const perResourceRows = perResource.slice(0, 20).map((r) => {
       const d = r.deltaUsd;
       const sign = d >= 0 ? '+' : '';
       return `| \`${r.sourceId}\` | \`${r.sourceType}\` | ${usd(r.sourceMonthlyUsd)} | ${usd(r.targetMonthlyUsd)} | ${sign}${usd(d)} |`;
@@ -385,7 +448,7 @@ function buildCostEstimate(costDelta: CostDeltaReport): string {
       ? `\n_Showing 20 of ${perResource.length} resources._\n`
       : '';
 
-    const caveatLines = caveats.map(c => `- ${c}`).join('\n');
+    const caveatLines = caveats.map((c) => `- ${c}`).join('\n');
 
     return [
       '## Cost Estimate',
@@ -414,22 +477,19 @@ function buildCostEstimate(costDelta: CostDeltaReport): string {
 }
 
 // ---------------------------------------------------------------------------
-// Section 9: Manual Tasks
+// Section 10: Manual Tasks
 // ---------------------------------------------------------------------------
 
 function buildManualTasks(manifest: TranslationManifest): string {
   try {
-    // Manual tasks are advisory-severity info findings with MANUAL_ prefix or
-    // those referencing advisory resources
     const manualFindings = manifest.findings.filter(
-      f => f.code.startsWith('MANUAL_') || f.code.includes('ADVISORY'),
+      (f) => f.code.startsWith('MANUAL_') || f.code.includes('ADVISORY'),
     );
 
-    // Also collect per-entry advisory findings
     const entryAdvisoryFindings: TranslationFinding[] = [];
     for (const entry of manifest.entries) {
       if (entry.status === 'advisory') {
-        entryAdvisoryFindings.push(...entry.findings.filter(f => f.severity !== 'blocker'));
+        entryAdvisoryFindings.push(...entry.findings.filter((f) => f.severity !== 'blocker'));
       }
     }
 
@@ -463,7 +523,7 @@ function buildManualTasks(manifest: TranslationManifest): string {
 }
 
 // ---------------------------------------------------------------------------
-// Section 10: Audit Trail
+// Section 11: Audit Trail
 // ---------------------------------------------------------------------------
 
 function buildAuditTrail(auditLog: readonly AuditEvent[]): string {
@@ -473,7 +533,7 @@ function buildAuditTrail(auditLog: readonly AuditEvent[]): string {
     }
 
     const display = auditLog.slice(0, 30);
-    const rows = display.map(e => {
+    const rows = display.map((e) => {
       const ts = e.timestamp.replace('T', ' ').replace(/\.\d+Z$/, ' UTC').replace('Z', ' UTC');
       const payloadSummary = truncate(JSON.stringify(e.payload), 50);
       return `| ${e.seq} | ${ts} | \`${e.kind}\` | ${payloadSummary} |`;
@@ -497,7 +557,7 @@ function buildAuditTrail(auditLog: readonly AuditEvent[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Section 11: Findings Appendix
+// Section 12: Findings Appendix
 // ---------------------------------------------------------------------------
 
 function buildFindingsAppendix(manifest: TranslationManifest): string {
@@ -511,14 +571,13 @@ function buildFindingsAppendix(manifest: TranslationManifest): string {
       return '## Findings Appendix\n\n_No findings recorded._\n\n';
     }
 
-    // Group by severity
-    const blockers = allFindings.filter(f => f.severity === 'blocker');
-    const warnings = allFindings.filter(f => f.severity === 'warning');
-    const infos    = allFindings.filter(f => f.severity === 'info');
+    const blockers = allFindings.filter((f) => f.severity === 'blocker');
+    const warnings = allFindings.filter((f) => f.severity === 'warning');
+    const infos = allFindings.filter((f) => f.severity === 'info');
 
     function renderGroup(label: string, emoji: string, items: TranslationFinding[]): string[] {
       if (items.length === 0) return [];
-      const rows = items.slice(0, 50).map(f => {
+      const rows = items.slice(0, 50).map((f) => {
         const detail = f.detail ? truncate(f.detail, 50) : '—';
         return `| \`${f.resourceId}\` | \`${f.code}\` | ${truncate(f.message, 60)} | ${detail} |`;
       });
@@ -555,7 +614,7 @@ function buildFindingsAppendix(manifest: TranslationManifest): string {
 /**
  * Generate a human-readable Markdown translation report.
  *
- * Includes up to 11 sections depending on which optional inputs are provided.
+ * Includes up to 12 sections depending on which optional inputs are provided.
  * Never throws — returns a partial report string on any unexpected error.
  *
  * @param inputs - Required manifest plus optional supplementary reports.
@@ -568,6 +627,7 @@ export function generateTranslationReport(inputs: ReportInputs): string {
     const sections: string[] = [
       buildExecutiveSummary(manifest),
       buildResourceInventory(manifest),
+      buildBehaviorContracts(manifest),
       buildBlockedResources(manifest),
       buildAdvisoryResources(manifest),
     ];
