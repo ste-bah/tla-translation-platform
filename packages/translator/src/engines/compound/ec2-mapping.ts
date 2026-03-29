@@ -15,7 +15,18 @@ type Finding = TranslationFinding;
 type SizeEntry = { azure: string; gcp: string };
 
 const MAPPED_KEYS: readonly string[] = [
-  'ami','associate_public_ip_address','availability_zone','ebs_block_device','instance_type','key_name','platform','root_block_device','subnet_id','tags','user_data','vpc_security_group_ids',
+  'ami',
+  'associate_public_ip_address',
+  'availability_zone',
+  'ebs_block_device',
+  'instance_type',
+  'key_name',
+  'platform',
+  'root_block_device',
+  'subnet_id',
+  'tags',
+  'user_data',
+  'vpc_security_group_ids',
 ];
 
 type OsFamily = 'linux' | 'windows' | 'unknown';
@@ -53,55 +64,157 @@ const INSTANCE_TYPE_MAP: ReadonlyMap<string, { azure: string; gcp: string }> = n
 
 function resolveAzureImageRef(os: OsFamily): Record<string, string> { return os === 'windows' ? { ...AZURE_IMAGE_WINDOWS } : { ...AZURE_IMAGE_LINUX }; }
 function resolveGcpImage(os: OsFamily): string { return os === 'windows' ? GCP_IMAGE_WINDOWS : GCP_IMAGE_LINUX; }
-function emitImageResolutionFinding(resourceId: string, ami: string | undefined, os: OsFamily): Finding {
+
+function emitImageResolutionFinding(
+  resourceId: string,
+  ami: string | undefined,
+  os: OsFamily,
+): Finding {
   const detail = ami ? `Source AMI: ${ami}` : 'No AMI specified';
   const level = os === 'unknown' ? 'warning' : 'info';
-  return createFinding(resourceId, level, 'IMAGE_RESOLUTION_REQUIRED', `Image mapping requires verification; defaulting to ${os === 'windows' ? 'Windows' : 'Linux'}. ${detail}`);
+  return createFinding(
+    resourceId,
+    level,
+    'IMAGE_RESOLUTION_REQUIRED',
+    `Image mapping requires verification; defaulting to ${os === 'windows' ? 'Windows' : 'Linux'}. ${detail}`,
+  );
 }
 
-function buildAzureNic(sourceName: string, attrs: Record<string, unknown>, location: string, tags: Record<string, string> | undefined, findings: Finding[], resourceId: string): Record<string, unknown> {
-  const ipConfig: Record<string, unknown> = { name: 'internal', private_ip_address_allocation: 'Dynamic', subnet_id: typeof attrs['subnet_id'] === 'string' ? attrs['subnet_id'] : '${azurerm_subnet.main.id}' };
+function buildAzureNic(
+  sourceName: string,
+  attrs: Record<string, unknown>,
+  location: string,
+  tags: Record<string, string> | undefined,
+  findings: Finding[],
+  resourceId: string,
+): Record<string, unknown> {
+  const ipConfig: Record<string, unknown> = {
+    name: 'internal',
+    private_ip_address_allocation: 'Dynamic',
+    subnet_id: typeof attrs['subnet_id'] === 'string'
+      ? attrs['subnet_id']
+      : '${azurerm_subnet.main.id}',
+  };
   if (attrs['associate_public_ip_address'] === true) {
     ipConfig['public_ip_address_id'] = `\${azurerm_public_ip.${sourceName}_pip.id}`;
     findings.push(createFinding(resourceId, 'warning', 'EC2_PUBLIC_IP_INTENT', 'Instance has public IP; review network exposure post-migration'));
   }
-  const nicAttrs: Record<string, unknown> = { ip_configuration: ipConfig, location, name: `${sourceName}-nic`, resource_group_name: '${azurerm_resource_group.main.name}' };
+  const nicAttrs: Record<string, unknown> = {
+    ip_configuration: ipConfig,
+    location,
+    name: `${sourceName}-nic`,
+    resource_group_name: '${azurerm_resource_group.main.name}',
+  };
   if (tags) nicAttrs['tags'] = transformTags('azure', tags);
   if (attrs['vpc_security_group_ids']) findings.push(createFinding(resourceId, 'info', 'EC2_SG_MANUAL_WIRING', 'Security group associations require manual network_security_group_id wiring on the NIC'));
   return nicAttrs;
 }
-function buildAzureSshKey(attrs: Record<string, unknown>, sourceName: string, findings: Finding[], resourceId: string): Record<string, unknown> | undefined {
+
+function buildAzureSshKey(
+  attrs: Record<string, unknown>,
+  sourceName: string,
+  findings: Finding[],
+  resourceId: string,
+): Record<string, unknown> | undefined {
   const keyName = attrs['key_name'] as string | undefined;
   if (!keyName) return undefined;
   findings.push(createFinding(resourceId, 'info', 'EC2_SSH_KEY_MANUAL', `SSH key '${keyName}' must be provided via variable var.ssh_public_key_${sourceName}`));
   return { public_key: `\${var.ssh_public_key_${sourceName}}`, username: 'adminuser' };
 }
-function buildAzureExtraDisks(attrs: Record<string, unknown>, sourceName: string, location: string, tags: Record<string, string> | undefined, traceability: ReturnType<typeof makeTraceability>, resourceId: string, findings: Finding[]): TranslatedResource[] {
+
+function buildAzureExtraDisks(
+  attrs: Record<string, unknown>,
+  sourceName: string,
+  location: string,
+  tags: Record<string, string> | undefined,
+  traceability: ReturnType<typeof makeTraceability>,
+  resourceId: string,
+  findings: Finding[],
+): TranslatedResource[] {
   const ebsDevices = attrs['ebs_block_device'] as Record<string, unknown>[] | undefined;
   if (!Array.isArray(ebsDevices) || ebsDevices.length === 0) return [];
   findings.push(createFinding(resourceId, 'info', 'EC2_ADDITIONAL_VOLUMES', `${ebsDevices.length} additional EBS volume(s) translated to managed disks`));
   return ebsDevices.map((dev, idx) => {
     const size = (dev['volume_size'] as number | undefined) ?? 20;
     const type = (dev['volume_type'] as string | undefined) === 'gp3' ? 'Premium_LRS' : 'StandardSSD_LRS';
-    const diskAttrs: Record<string, unknown> = { create_option: 'Empty', disk_size_gb: size, location, name: `${sourceName}-data-disk-${idx}`, resource_group_name: '${azurerm_resource_group.main.name}', storage_account_type: type };
+    const diskAttrs: Record<string, unknown> = {
+      create_option: 'Empty',
+      disk_size_gb: size,
+      location,
+      name: `${sourceName}-data-disk-${idx}`,
+      resource_group_name: '${azurerm_resource_group.main.name}',
+      storage_account_type: type,
+    };
     if (tags) diskAttrs['tags'] = transformTags('azure', tags);
-    return { targetType: 'azurerm_managed_disk', targetName: `${sourceName}_data_disk_${idx}`, attributes: diskAttrs, sourceId: resourceId, traceability };
+    return {
+      targetType: 'azurerm_managed_disk',
+      targetName: `${sourceName}_data_disk_${idx}`,
+      attributes: diskAttrs,
+      sourceId: resourceId,
+      traceability,
+    };
   });
 }
-function buildAzureVmAttrs(os: OsFamily, vmSize: string, storageType: string, location: string, sourceName: string, tags: Record<string, string> | undefined, attrs: Record<string, unknown>, findings: Finding[], resourceId: string): Record<string, unknown> {
-  const vmAttrs: Record<string, unknown> = { admin_username: 'adminuser', location, name: sourceName, network_interface_ids: [`\${azurerm_network_interface.${sourceName}_nic.id}`], os_disk: { caching: 'ReadWrite', storage_account_type: storageType }, resource_group_name: '${azurerm_resource_group.main.name}', size: vmSize, source_image_reference: resolveAzureImageRef(os) };
+
+function buildAzureVmAttrs(
+  os: OsFamily,
+  vmSize: string,
+  storageType: string,
+  location: string,
+  sourceName: string,
+  tags: Record<string, string> | undefined,
+  attrs: Record<string, unknown>,
+  findings: Finding[],
+  resourceId: string,
+): Record<string, unknown> {
+  const vmAttrs: Record<string, unknown> = {
+    admin_username: 'adminuser',
+    location,
+    name: sourceName,
+    network_interface_ids: [`\${azurerm_network_interface.${sourceName}_nic.id}`],
+    os_disk: {
+      caching: 'ReadWrite',
+      storage_account_type: storageType,
+    },
+    resource_group_name: '${azurerm_resource_group.main.name}',
+    size: vmSize,
+    source_image_reference: resolveAzureImageRef(os),
+  };
   const sshKey = buildAzureSshKey(attrs, sourceName, findings, resourceId);
   if (sshKey) vmAttrs['admin_ssh_key'] = sshKey;
   if (attrs['user_data']) vmAttrs['custom_data'] = attrs['user_data'];
   if (tags) vmAttrs['tags'] = transformTags('azure', tags);
   return vmAttrs;
 }
-function buildAzureRootDisk(sourceName: string, diskSizeGb: number, storageType: string, location: string, tags: Record<string, string> | undefined): Record<string, unknown> {
-  const diskAttrs: Record<string, unknown> = { create_option: 'Empty', disk_size_gb: diskSizeGb, location, name: `${sourceName}-disk`, resource_group_name: '${azurerm_resource_group.main.name}', storage_account_type: storageType };
+
+function buildAzureRootDisk(
+  sourceName: string,
+  diskSizeGb: number,
+  storageType: string,
+  location: string,
+  tags: Record<string, string> | undefined,
+): Record<string, unknown> {
+  const diskAttrs: Record<string, unknown> = {
+    create_option: 'Empty',
+    disk_size_gb: diskSizeGb,
+    location,
+    name: `${sourceName}-disk`,
+    resource_group_name: '${azurerm_resource_group.main.name}',
+    storage_account_type: storageType,
+  };
   if (tags) diskAttrs['tags'] = transformTags('azure', tags);
   return diskAttrs;
 }
-function buildAzureFindings(ctx: TranslationContext, resourceId: string, attrs: Record<string, unknown>, sizeEntry: SizeEntry | undefined, os: OsFamily, instanceType: string, translatedCount: number): Finding[] {
+
+function buildAzureFindings(
+  ctx: TranslationContext,
+  resourceId: string,
+  attrs: Record<string, unknown>,
+  sizeEntry: SizeEntry | undefined,
+  os: OsFamily,
+  instanceType: string,
+  translatedCount: number,
+): Finding[] {
   const findings: Finding[] = [
     ...collectUnmappedAttrs(resourceId, attrs, MAPPED_KEYS),
     ...emitBehavioralGapFindings(ctx),
@@ -111,6 +224,7 @@ function buildAzureFindings(ctx: TranslationContext, resourceId: string, attrs: 
   if (!sizeEntry) findings.push(createFinding(resourceId, 'warning', 'UNKNOWN_INSTANCE_TYPE', `Instance type '${instanceType}' has no known Azure mapping; defaulting to Standard_B1s`));
   return findings;
 }
+
 function translateToAzure(ctx: TranslationContext): EngineResult {
   const { resource } = ctx;
   const attrs = resource.attributes as Record<string, unknown>;
@@ -133,45 +247,130 @@ function translateToAzure(ctx: TranslationContext): EngineResult {
   const vmAttrs = buildAzureVmAttrs(os, vmSize, storageType, location, sourceName, tags, attrs, vmFindings, resource.id);
   const diskAttrs = buildAzureRootDisk(sourceName, diskSizeGb, storageType, location, tags);
   const translated: TranslatedResource[] = [
-    { targetType: 'azurerm_network_interface', targetName: `${sourceName}_nic`, attributes: nicAttrs, sourceId: resource.id, traceability },
-    { targetType: vmTargetType, targetName: sourceName, attributes: vmAttrs, sourceId: resource.id, traceability },
-    { targetType: 'azurerm_managed_disk', targetName: `${sourceName}_disk`, attributes: diskAttrs, sourceId: resource.id, traceability },
+    {
+      targetType: 'azurerm_network_interface',
+      targetName: `${sourceName}_nic`,
+      attributes: nicAttrs,
+      sourceId: resource.id,
+      traceability,
+    },
+    {
+      targetType: vmTargetType,
+      targetName: sourceName,
+      attributes: vmAttrs,
+      sourceId: resource.id,
+      traceability,
+    },
+    {
+      targetType: 'azurerm_managed_disk',
+      targetName: `${sourceName}_disk`,
+      attributes: diskAttrs,
+      sourceId: resource.id,
+      traceability,
+    },
   ];
   const ebsFindings: Finding[] = [];
   translated.push(...buildAzureExtraDisks(attrs, sourceName, location, tags, traceability, resource.id, ebsFindings));
   const stdFindings = buildAzureFindings(ctx, resource.id, attrs, sizeEntry, os, instanceType, translated.length);
   return { translated, findings: [...nicFindings, ...vmFindings, ...ebsFindings, ...stdFindings] };
 }
-function buildGcpExtraDisks(attrs: Record<string, unknown>, sourceName: string, tags: Record<string, string> | undefined, traceability: ReturnType<typeof makeTraceability>, resourceId: string, findings: Finding[]): TranslatedResource[] {
+
+function buildGcpExtraDisks(
+  attrs: Record<string, unknown>,
+  sourceName: string,
+  tags: Record<string, string> | undefined,
+  traceability: ReturnType<typeof makeTraceability>,
+  resourceId: string,
+  findings: Finding[],
+): TranslatedResource[] {
   const ebsDevices = attrs['ebs_block_device'] as Record<string, unknown>[] | undefined;
   if (!Array.isArray(ebsDevices) || ebsDevices.length === 0) return [];
   findings.push(createFinding(resourceId, 'info', 'EC2_ADDITIONAL_VOLUMES', `${ebsDevices.length} additional EBS volume(s) translated to compute disks`));
   return ebsDevices.map((dev, idx) => {
     const size = (dev['volume_size'] as number | undefined) ?? 20;
     const type = (dev['volume_type'] as string | undefined) === 'gp3' ? 'pd-ssd' : 'pd-balanced';
-    const diskAttrs: Record<string, unknown> = { name: `${sourceName}-data-disk-${idx}`, size, type, zone: '${var.zone}' };
+    const diskAttrs: Record<string, unknown> = {
+      name: `${sourceName}-data-disk-${idx}`,
+      size,
+      type,
+      zone: '${var.zone}',
+    };
     if (tags) diskAttrs['labels'] = transformTags('gcp', tags);
-    return { targetType: 'google_compute_disk', targetName: `${sourceName}_data_disk_${idx}`, attributes: diskAttrs, sourceId: resourceId, traceability };
+    return {
+      targetType: 'google_compute_disk',
+      targetName: `${sourceName}_data_disk_${idx}`,
+      attributes: diskAttrs,
+      sourceId: resourceId,
+      traceability,
+    };
   });
 }
-function buildGcpInstanceAttrs(os: OsFamily, machineType: string, diskSizeGb: number, diskType: string, sourceName: string, tags: Record<string, string> | undefined, attrs: Record<string, unknown>, findings: Finding[], resourceId: string): Record<string, unknown> {
-  const networkInterface: Record<string, unknown> = { network: '${google_compute_network.main.id}', subnetwork: typeof attrs['subnet_id'] === 'string' ? attrs['subnet_id'] : '${google_compute_subnetwork.main.id}' };
+
+function buildGcpInstanceAttrs(
+  os: OsFamily,
+  machineType: string,
+  diskSizeGb: number,
+  diskType: string,
+  sourceName: string,
+  tags: Record<string, string> | undefined,
+  attrs: Record<string, unknown>,
+  findings: Finding[],
+  resourceId: string,
+): Record<string, unknown> {
+  const networkInterface: Record<string, unknown> = {
+    network: '${google_compute_network.main.id}',
+    subnetwork: typeof attrs['subnet_id'] === 'string'
+      ? attrs['subnet_id']
+      : '${google_compute_subnetwork.main.id}',
+  };
   if (attrs['associate_public_ip_address'] === true) {
     networkInterface['access_config'] = {};
     findings.push(createFinding(resourceId, 'warning', 'EC2_PUBLIC_IP_INTENT', 'Instance has public IP; review network exposure post-migration'));
   }
-  const instanceAttrs: Record<string, unknown> = { boot_disk: { initialize_params: { image: resolveGcpImage(os), size: diskSizeGb, type: diskType } }, machine_type: machineType, name: sourceName, network_interface: networkInterface, zone: '${var.zone}' };
+  const instanceAttrs: Record<string, unknown> = {
+    boot_disk: {
+      initialize_params: {
+        image: resolveGcpImage(os),
+        size: diskSizeGb,
+        type: diskType,
+      },
+    },
+    machine_type: machineType,
+    name: sourceName,
+    network_interface: networkInterface,
+    zone: '${var.zone}',
+  };
   if (attrs['user_data']) instanceAttrs['metadata_startup_script'] = attrs['user_data'];
   if (tags) instanceAttrs['labels'] = transformTags('gcp', tags);
   if (attrs['vpc_security_group_ids']) findings.push(createFinding(resourceId, 'info', 'EC2_SG_MANUAL_WIRING', 'Security group associations require manual firewall rule wiring'));
   return instanceAttrs;
 }
-function buildGcpRootDisk(sourceName: string, diskSizeGb: number, diskType: string, tags: Record<string, string> | undefined): Record<string, unknown> {
-  const diskAttrs: Record<string, unknown> = { name: `${sourceName}-disk`, size: diskSizeGb, type: diskType, zone: '${var.zone}' };
+
+function buildGcpRootDisk(
+  sourceName: string,
+  diskSizeGb: number,
+  diskType: string,
+  tags: Record<string, string> | undefined,
+): Record<string, unknown> {
+  const diskAttrs: Record<string, unknown> = {
+    name: `${sourceName}-disk`,
+    size: diskSizeGb,
+    type: diskType,
+    zone: '${var.zone}',
+  };
   if (tags) diskAttrs['labels'] = transformTags('gcp', tags);
   return diskAttrs;
 }
-function buildGcpFindings(ctx: TranslationContext, resourceId: string, attrs: Record<string, unknown>, sizeEntry: SizeEntry | undefined, os: OsFamily, instanceType: string, translatedCount: number): Finding[] {
+
+function buildGcpFindings(
+  ctx: TranslationContext,
+  resourceId: string,
+  attrs: Record<string, unknown>,
+  sizeEntry: SizeEntry | undefined,
+  os: OsFamily,
+  instanceType: string,
+  translatedCount: number,
+): Finding[] {
   const findings: Finding[] = [
     ...collectUnmappedAttrs(resourceId, attrs, MAPPED_KEYS),
     ...emitBehavioralGapFindings(ctx),
@@ -181,6 +380,7 @@ function buildGcpFindings(ctx: TranslationContext, resourceId: string, attrs: Re
   if (!sizeEntry) findings.push(createFinding(resourceId, 'warning', 'UNKNOWN_INSTANCE_TYPE', `Instance type '${instanceType}' has no known GCP mapping; defaulting to e2-micro`));
   return findings;
 }
+
 function translateToGcp(ctx: TranslationContext): EngineResult {
   const { resource } = ctx;
   const attrs = resource.attributes as Record<string, unknown>;
@@ -198,15 +398,31 @@ function translateToGcp(ctx: TranslationContext): EngineResult {
   const instanceAttrs = buildGcpInstanceAttrs(os, machineType, diskSizeGb, diskType, sourceName, tags, attrs, instanceFindings, resource.id);
   const diskAttrs = buildGcpRootDisk(sourceName, diskSizeGb, diskType, tags);
   const translated: TranslatedResource[] = [
-    { targetType: 'google_compute_instance', targetName: sourceName, attributes: instanceAttrs, sourceId: resource.id, traceability },
-    { targetType: 'google_compute_disk', targetName: `${sourceName}_disk`, attributes: diskAttrs, sourceId: resource.id, traceability },
+    {
+      targetType: 'google_compute_instance',
+      targetName: sourceName,
+      attributes: instanceAttrs,
+      sourceId: resource.id,
+      traceability,
+    },
+    {
+      targetType: 'google_compute_disk',
+      targetName: `${sourceName}_disk`,
+      attributes: diskAttrs,
+      sourceId: resource.id,
+      traceability,
+    },
   ];
   const ebsFindings: Finding[] = [];
   translated.push(...buildGcpExtraDisks(attrs, sourceName, tags, traceability, resource.id, ebsFindings));
   const stdFindings = buildGcpFindings(ctx, resource.id, attrs, sizeEntry, os, instanceType, translated.length);
   return { translated, findings: [...instanceFindings, ...ebsFindings, ...stdFindings] };
 }
-function emitSecurityGateFindings(resourceId: string, attrs: Record<string, unknown>): { blockers: Finding[]; warnings: Finding[] } {
+
+function emitSecurityGateFindings(
+  resourceId: string,
+  attrs: Record<string, unknown>,
+): { blockers: Finding[]; warnings: Finding[] } {
   const blockers: Finding[] = [];
   const warnings: Finding[] = [];
   const hasPublicIp = attrs['associate_public_ip_address'] === true;
@@ -218,7 +434,12 @@ function emitSecurityGateFindings(resourceId: string, attrs: Record<string, unkn
   return { blockers, warnings };
 }
 
-function buildEc2Contract(resourceId: string, attrs: Record<string, unknown>, translated: readonly TranslatedResource[], findings: readonly Finding[]): TranslationContract {
+function buildEc2Contract(
+  resourceId: string,
+  attrs: Record<string, unknown>,
+  translated: readonly TranslatedResource[],
+  findings: readonly Finding[],
+): TranslationContract {
   const os = detectOsFamily(attrs);
   const preserved: string[] = ['compute instance runtime shape preserved as a single VM/instance abstraction'];
   const transformed: string[] = [];
@@ -258,7 +479,16 @@ function buildEc2Contract(resourceId: string, attrs: Record<string, unknown>, tr
     confidenceFactors.push('storage encryption posture needs review');
   }
 
-  return { sourceId: resourceId, targetIds: translated.map((r) => r.targetName), preserved, transformed, degraded, blockers, reviewRequired, confidenceFactors };
+  return {
+    sourceId: resourceId,
+    targetIds: translated.map((r) => r.targetName),
+    preserved,
+    transformed,
+    degraded,
+    blockers,
+    reviewRequired,
+    confidenceFactors,
+  };
 }
 
 export function translateEc2(ctx: TranslationContext): EngineResult {
