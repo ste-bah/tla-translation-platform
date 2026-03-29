@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "@tla/shared": "workspace:*",
-    "@tla/registry": "workspace:*"
+    "@tla/registry": "workspace:*",
+    "@tla/validator": "workspace:*"
   },
   "devDependencies": {
     "typescript": "~5.8.3",

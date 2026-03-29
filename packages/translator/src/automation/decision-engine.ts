@@ -41,6 +41,19 @@ function countDegradedContracts(manifest: TranslationManifest): number {
   return manifest.entries.filter((entry) => (entry.contract?.degraded.length ?? 0) > 0).length;
 }
 
+/**
+ * Evaluate whether a translation result qualifies for automated progression.
+ *
+ * Decision logic:
+ * - assisted mode: always approved (human-driven workflow)
+ * - guarded-auto: approved only when zero blockers, zero degraded contracts,
+ *   zero review-required contracts, zero generic fallbacks, confidence >= 0.75
+ * - unattended: same gates as guarded-auto but status is 'not_eligible' instead
+ *   of 'approval_required' when gates fail
+ *
+ * @param input - Mode, manifest, optional scenario report and confidence override.
+ * @returns Machine-readable decision with status, reasons, and summary counts.
+ */
 export function evaluateAutomationDecision(input: AutomationDecisionInput): AutomationDecision {
   const confidenceOverall = input.confidenceOverall ?? input.manifest.confidenceOverall;
   const fallbackResources = countFallbackResources(input.manifest);

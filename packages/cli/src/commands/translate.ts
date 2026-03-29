@@ -1,3 +1,16 @@
+/**
+ * translate command — drives the full TLA translation pipeline from the CLI.
+ *
+ * Pipeline:
+ *   parse HCL (file | directory)
+ *     -> build dependency graph
+ *     -> emit Canonical IR
+ *     -> (assessment) return inventory
+ *     -> (full/selected) run TranslationCompiler
+ *     -> write files to outputDir
+ *     -> format output to stdout
+ */
+
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { stat, mkdir, writeFile } from 'node:fs/promises';
@@ -35,6 +48,10 @@ import type {
 } from '@tla/shared';
 import type { AutomationDecision, AutomationMode } from '@tla/translator';
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 interface TranslateOptions {
   target: 'azure' | 'gcp';
   output?: string;
@@ -66,11 +83,21 @@ interface InventorySummary {
   unknown: number;
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Detects whether a path points to a file or directory.
+ */
 async function detectSourceKind(sourcePath: string): Promise<'file' | 'directory'> {
   const info = await stat(sourcePath);
   return info.isDirectory() ? 'directory' : 'file';
 }
 
+/**
+ * Builds an inventory summary from raw HCL ASTs.
+ */
 function buildInventorySummary(inventory: ServiceInventory): InventorySummary {
   const byFamily: Record<string, number> = {};
   for (const service of inventory.identified_services) {
@@ -91,6 +118,9 @@ function buildInventorySummary(inventory: ServiceInventory): InventorySummary {
   };
 }
 
+/**
+ * Formats an inventory assessment as plain text.
+ */
 function formatInventoryText(inventory: InventorySummary): string {
   const lines: string[] = [];
   lines.push('Assessment Inventory');
@@ -120,6 +150,9 @@ function formatInventoryText(inventory: InventorySummary): string {
   return lines.join('\n');
 }
 
+/**
+ * Converts a full TranslationManifest to a condensed summary.
+ */
 function buildManifestSummary(manifest: TranslationManifest): ManifestSummary {
   return {
     translated: manifest.counts.translated,
@@ -130,6 +163,9 @@ function buildManifestSummary(manifest: TranslationManifest): ManifestSummary {
   };
 }
 
+/**
+ * Formats a translation result as plain text.
+ */
 function formatTranslationText(
   result: TranslationResult,
   outputDir: string,
@@ -189,6 +225,9 @@ function formatTranslationText(
   return lines.join('\n');
 }
 
+/**
+ * Filters a Canonical IR to only include resources matching `selectedResources`.
+ */
 function filterIr(ir: CanonicalIR, selectedResources: string[]): CanonicalIR {
   const selected = new Set(selectedResources);
   const filteredResources = ir.resources.filter(
@@ -205,6 +244,10 @@ function filterIr(ir: CanonicalIR, selectedResources: string[]): CanonicalIR {
   };
 }
 
+/**
+ * Filters a Canonical IR to only include resources whose ID starts with any
+ * of the provided stack prefixes (e.g. `module.networking`).
+ */
 function filterIrByStacks(ir: CanonicalIR, stacks: string[]): CanonicalIR {
   const prefixes = stacks.map((s) => (s.endsWith('.') ? s : `${s}.`));
   const filteredResources = ir.resources.filter((r) =>
@@ -224,6 +267,11 @@ function filterIrByStacks(ir: CanonicalIR, stacks: string[]): CanonicalIR {
   };
 }
 
+/**
+ * Filters a Canonical IR to only include resources that belong to any of the
+ * provided module names. Uses `ir.modules` membership first; falls back to
+ * resource ID prefix `module.<name>.` when no module entry matches.
+ */
 function filterIrByModules(ir: CanonicalIR, moduleNames: string[]): CanonicalIR {
   const nameSet = new Set(moduleNames);
   const memberIds = new Set<string>();
@@ -259,6 +307,11 @@ function filterIrByModules(ir: CanonicalIR, moduleNames: string[]): CanonicalIR 
   };
 }
 
+/**
+ * Filters a Canonical IR to only include resources whose address appears in
+ * the provided plan address set. Matches against `${sourceType}.${id}` first
+ * (the standard terraform address format), then falls back to bare `id`.
+ */
 function filterIrByAddresses(ir: CanonicalIR, planAddresses: Set<string>): CanonicalIR {
   const filteredResources = ir.resources.filter(
     (r) => planAddresses.has(`${r.sourceType}.${r.id}`) || planAddresses.has(r.id),
@@ -274,6 +327,14 @@ function filterIrByAddresses(ir: CanonicalIR, planAddresses: Set<string>): Canon
   };
 }
 
+// ---------------------------------------------------------------------------
+// Pipeline helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parses HCL from a file or directory and returns the AST array.
+ * Returns an empty array when no .tf files are found in a directory.
+ */
 async function parseHclSource(
   sourcePath: string,
 ): Promise<Awaited<ReturnType<typeof parseHclDirectory>>['asts']> {
@@ -286,6 +347,11 @@ async function parseHclSource(
   return result.asts;
 }
 
+/**
+ * Runs the full compile+write pipeline for scope=full or scope=selected.
+ * Returns the TranslationResult, resolved output directory path, written artifact list,
+ * and optional automation decision.
+ */
 async function runFullTranslation(
   asts: Awaited<ReturnType<typeof parseHclDirectory>>['asts'],
   opts: TranslateOptions,
@@ -392,6 +458,10 @@ async function runFullTranslation(
   return { result, outputDir, writtenArtifacts, automationDecision };
 }
 
+/**
+ * Validates CLI option values and writes an error + sets exit code on failure.
+ * Returns false when validation fails so the caller can return early.
+ */
 function validateOptions(opts: TranslateOptions): boolean {
   if (!['azure', 'gcp'].includes(opts.target)) {
     process.stderr.write('Error: --target must be azure or gcp\n');
@@ -421,6 +491,9 @@ function validateOptions(opts: TranslateOptions): boolean {
   return true;
 }
 
+/**
+ * Classifies a caught error into a safe, non-reflective message for stderr.
+ */
 function classifyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (raw.includes('ENOENT')) {
@@ -432,6 +505,13 @@ function classifyError(err: unknown): string {
   return 'Translation failed unexpectedly. Check inputs and try again.';
 }
 
+// ---------------------------------------------------------------------------
+// Command registration
+// ---------------------------------------------------------------------------
+
+/**
+ * Registers the `translate` command on a Commander program.
+ */
 export function registerTranslate(program: Command): void {
   program
     .command('translate')
