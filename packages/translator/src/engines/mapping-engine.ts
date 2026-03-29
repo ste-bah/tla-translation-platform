@@ -8,6 +8,7 @@ import type {
   TranslationFinding,
   TranslationPlan,
   CompilerOptions,
+  TranslationContract,
 } from '@tla/shared';
 import type { RegistryApi } from '@tla/registry';
 
@@ -39,6 +40,7 @@ export interface TranslationContext {
 export interface EngineResult {
   readonly translated: TranslatedResource[];
   readonly findings: TranslationFinding[];
+  readonly contracts?: readonly TranslationContract[];
 }
 
 // ---------------------------------------------------------------------------

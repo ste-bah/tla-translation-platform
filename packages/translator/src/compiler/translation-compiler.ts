@@ -8,6 +8,7 @@ import type {
   ManifestEntry,
   TranslationStats,
   AuditLogger,
+  TranslationContract,
 } from '@tla/shared';
 import {
   createComponentLogger,
@@ -69,6 +70,7 @@ export class TranslationCompiler {
 
     const allFindings: TranslationFinding[] = [...planFindings];
     const allResources: TranslatedResource[] = [];
+    const allContracts: TranslationContract[] = [];
 
     // Build resource lookup (do NOT mutate ir.resources)
     const resourceById = new Map(ir.resources.map((r) => [r.id, r]));
@@ -107,6 +109,9 @@ export class TranslationCompiler {
         const result = engine.translate(ctx);
         allResources.push(...result.translated);
         allFindings.push(...result.findings);
+        if (Array.isArray(result.contracts) && result.contracts.length > 0) {
+          allContracts.push(...result.contracts);
+        }
 
         this.audit?.log('engine_emit', {
           resourceId: resource.id,
@@ -114,6 +119,7 @@ export class TranslationCompiler {
           mappingType: item.mappingType,
           translatedCount: result.translated.length,
           findingCount: result.findings.length,
+          contractCount: result.contracts?.length ?? 0,
         });
       } catch (err: unknown) {
         const message =
@@ -154,7 +160,13 @@ export class TranslationCompiler {
     }
 
     // Phase 4: Build manifest
-    const manifest = this.buildManifest(ir, allResources, allFindings, options);
+    const manifest = this.buildManifest(
+      ir,
+      allResources,
+      allFindings,
+      allContracts,
+      options,
+    );
 
     // Phase 5: Build stats
     const durationMs = Date.now() - startTime;
@@ -176,6 +188,7 @@ export class TranslationCompiler {
       blocked: stats.blocked,
       advisory: stats.advisory,
       durationMs: stats.durationMs,
+      contractCount: allContracts.length,
     });
 
     // Validate output with Zod
@@ -198,6 +211,7 @@ export class TranslationCompiler {
     ir: CanonicalIR,
     resources: readonly TranslatedResource[],
     findings: readonly TranslationFinding[],
+    contracts: readonly TranslationContract[],
     options: CompilerOptions,
   ): TranslationManifest {
     // Group resources and findings by source ID
@@ -213,6 +227,13 @@ export class TranslationCompiler {
       const list = findingsByResource.get(f.resourceId) ?? [];
       list.push(f);
       findingsByResource.set(f.resourceId, list);
+    }
+
+    const contractsByResource = new Map<string, TranslationContract>();
+    for (const contract of contracts) {
+      if (!contractsByResource.has(contract.sourceId)) {
+        contractsByResource.set(contract.sourceId, contract);
+      }
     }
 
     // Build manifest entries
@@ -231,6 +252,7 @@ export class TranslationCompiler {
     for (const irResource of ir.resources) {
       const targetResources = resourcesBySource.get(irResource.id) ?? [];
       const resourceFindings = findingsByResource.get(irResource.id) ?? [];
+      const contract = contractsByResource.get(irResource.id) ?? null;
 
       const hasBlocker = resourceFindings.some((f) => f.severity === 'blocker');
       const hasTargets = targetResources.length > 0;
@@ -264,6 +286,7 @@ export class TranslationCompiler {
         targetResources,
         confidence,
         findings: resourceFindings,
+        contract,
       });
     }
 
