@@ -22,6 +22,15 @@ function cleanContract(entry: TranslationManifest['entries'][number]): boolean {
   return contract.blockers.length === 0 && contract.degraded.length === 0 && contract.reviewRequired.length === 0;
 }
 
+/**
+ * Classify whether a translation manifest matches a supported unattended scenario.
+ *
+ * Only single-resource manifests with clean contracts (zero blockers, degraded,
+ * and review-required items) and confidence >= 0.85 are eligible. Currently
+ * supports: single-s3-bucket, single-private-ec2.
+ *
+ * @returns The scenario ID string, or null if the manifest does not match any supported scenario.
+ */
 export function classifySupportedUnattendedScenario(manifest: TranslationManifest): string | null {
   if (manifest.entries.length !== 1) return null;
   if (manifest.counts.blocked > 0 || manifest.counts.advisory > 0 || manifest.counts.partial > 0) return null;

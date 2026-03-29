@@ -15,6 +15,10 @@ export type {
   AutomationDecisionInput,
 } from './automation/decision-engine.js';
 
+// Unattended scenario catalogue
+export { classifySupportedUnattendedScenario, SUPPORTED_UNATTENDED_SCENARIOS } from './automation/unattended-catalogue.js';
+export type { SupportedUnattendedScenario } from './automation/unattended-catalogue.js';
+
 // Engines
 export { engineRegistry, getEngine } from './engines/index.js';
 
