@@ -3,7 +3,7 @@
 > Assisted AWS Terraform migration to Azure and GCP -- analyse, translate, review, and validate.
 
 ![Tests](https://img.shields.io/badge/tests-2500%2B%20passing-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-blue)
+![License](https://img.shields.io/badge/license-Proprietary-red)
 ![Node](https://img.shields.io/badge/node-22%2B-green)
 ![Go](https://img.shields.io/badge/go-1.22%2B-00ADD8)
 
@@ -488,4 +488,4 @@ This project follows **PRD-CTP-002 v3.0**. All translation engines implement the
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is proprietary and is not licensed for copying, redistribution, modification, resale, or commercial use without prior written permission from the copyright holder. See [LICENSE](LICENSE).
