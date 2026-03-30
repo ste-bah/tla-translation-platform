@@ -233,52 +233,80 @@ Resources NOT in the dispatch tables above will use generic fallback translation
 
 ### Service Coverage Heatmap
 
-Current coverage quality for AWS-to-Azure/GCP infrastructure translation.
+```mermaid
+%%{init: {"theme": "neutral"}}%%
+block-beta
+  columns 7
 
-| Service | Coverage |
-|---------|----------|
-| EC2 | :green_circle: Well covered |
-| S3 | :green_circle: Well covered |
-| ECR | :green_circle: Well covered |
-| ElastiCache Redis | :green_circle: Well covered |
-| Route53 | :green_circle: Well covered |
-| VPC | :green_circle: Well covered |
-| Subnet | :green_circle: Well covered |
-| VPC Peering | :green_circle: Well covered |
-| NAT Gateway | :green_circle: Well covered |
-| KMS | :green_circle: Well covered |
-| Secrets Manager | :green_circle: Well covered |
-| EKS | :green_circle: Well covered |
-| RDS | :green_circle: Well covered |
-| ASG | :yellow_circle: Review-heavy |
-| ALB / NLB | :yellow_circle: Review-heavy |
-| Lambda | :yellow_circle: Review-heavy |
-| ECS | :yellow_circle: Review-heavy |
-| API Gateway | :yellow_circle: Review-heavy |
-| Security Groups | :yellow_circle: Review-heavy |
-| CloudWatch | :yellow_circle: Review-heavy |
-| Transit Gateway | :yellow_circle: Review-heavy |
-| PrivateLink | :yellow_circle: Review-heavy |
-| WAF | :yellow_circle: Review-heavy |
-| Direct Connect | :yellow_circle: Review-heavy |
-| VPN | :yellow_circle: Review-heavy |
-| Customer Gateway | :yellow_circle: Review-heavy |
-| EBS | :yellow_circle: Review-heavy |
-| EFS | :yellow_circle: Review-heavy |
-| SQS | :yellow_circle: Review-heavy |
-| SNS | :yellow_circle: Review-heavy |
-| Step Functions | :yellow_circle: Review-heavy |
-| CloudFront | :yellow_circle: Review-heavy |
-| IAM Roles / Policies | :orange_circle: Advisory-only |
-| DynamoDB | :orange_circle: Advisory-only |
-| Route53 Health Checks | :orange_circle: Advisory-only |
-| ElastiCache Cluster | :orange_circle: Advisory-only |
-| `null_resource` / `data "external"` / `local-exec` | :red_circle: Manual review |
+  block:well["Well Covered"]:7
+    EC2["EC2"] S3["S3"] ECR["ECR"] Redis["ElastiCache\nRedis"] Route53["Route53"] VPC["VPC"] Subnet["Subnet"]
+    Peering["VPC\nPeering"] NAT["NAT\nGateway"] KMS["KMS"] Secrets["Secrets\nManager"] EKS["EKS"] RDS["RDS"]
+  end
 
-> :green_circle: **Well covered** -- specialised handler, strong for assisted migration
-> :yellow_circle: **Review-heavy** -- translation exists but cross-cloud behaviour needs verification
-> :orange_circle: **Advisory-only** -- recognised but manual-review-first, no automated translation
-> :red_circle: **Manual review** -- procedural resources, flagged for human attention
+  block:review["Review-Heavy"]:7
+    ASG["ASG"] LB["ALB/NLB"] Lambda["Lambda"] ECS["ECS"] APIGW["API\nGateway"] SG["Security\nGroups"] CW["Cloud\nWatch"]
+    TGW["Transit\nGateway"] PL["Private\nLink"] WAF["WAF"] DX["Direct\nConnect"] VPN_["VPN"] CGW["Customer\nGateway"] EBS["EBS"]
+    EFS["EFS"] SQS["SQS"] SNS["SNS"] SF["Step\nFunctions"] CF["Cloud\nFront"]
+  end
+
+  block:advisory["Advisory-Only"]:7
+    IAM["IAM\nRoles"] DDB["DynamoDB"] R53H["Route53\nHealth"] ECC["ElastiCache\nCluster"]
+  end
+
+  block:manual["Manual Review"]:7
+    NR["null_resource"] DE["data external"] LE["local-exec"]
+  end
+
+  style well fill:#2ea44f,color:#fff
+  style review fill:#d29922,color:#fff
+  style advisory fill:#e16f24,color:#fff
+  style manual fill:#cf222e,color:#fff
+
+  style EC2 fill:#2ea44f,color:#fff,stroke:#fff
+  style S3 fill:#2ea44f,color:#fff,stroke:#fff
+  style ECR fill:#2ea44f,color:#fff,stroke:#fff
+  style Redis fill:#2ea44f,color:#fff,stroke:#fff
+  style Route53 fill:#2ea44f,color:#fff,stroke:#fff
+  style VPC fill:#2ea44f,color:#fff,stroke:#fff
+  style Subnet fill:#2ea44f,color:#fff,stroke:#fff
+  style Peering fill:#2ea44f,color:#fff,stroke:#fff
+  style NAT fill:#2ea44f,color:#fff,stroke:#fff
+  style KMS fill:#2ea44f,color:#fff,stroke:#fff
+  style Secrets fill:#2ea44f,color:#fff,stroke:#fff
+  style EKS fill:#2ea44f,color:#fff,stroke:#fff
+  style RDS fill:#2ea44f,color:#fff,stroke:#fff
+
+  style ASG fill:#d29922,color:#fff,stroke:#fff
+  style LB fill:#d29922,color:#fff,stroke:#fff
+  style Lambda fill:#d29922,color:#fff,stroke:#fff
+  style ECS fill:#d29922,color:#fff,stroke:#fff
+  style APIGW fill:#d29922,color:#fff,stroke:#fff
+  style SG fill:#d29922,color:#fff,stroke:#fff
+  style CW fill:#d29922,color:#fff,stroke:#fff
+  style TGW fill:#d29922,color:#fff,stroke:#fff
+  style PL fill:#d29922,color:#fff,stroke:#fff
+  style WAF fill:#d29922,color:#fff,stroke:#fff
+  style DX fill:#d29922,color:#fff,stroke:#fff
+  style VPN_ fill:#d29922,color:#fff,stroke:#fff
+  style CGW fill:#d29922,color:#fff,stroke:#fff
+  style EBS fill:#d29922,color:#fff,stroke:#fff
+  style EFS fill:#d29922,color:#fff,stroke:#fff
+  style SQS fill:#d29922,color:#fff,stroke:#fff
+  style SNS fill:#d29922,color:#fff,stroke:#fff
+  style SF fill:#d29922,color:#fff,stroke:#fff
+  style CF fill:#d29922,color:#fff,stroke:#fff
+
+  style IAM fill:#e16f24,color:#fff,stroke:#fff
+  style DDB fill:#e16f24,color:#fff,stroke:#fff
+  style R53H fill:#e16f24,color:#fff,stroke:#fff
+  style ECC fill:#e16f24,color:#fff,stroke:#fff
+
+  style NR fill:#cf222e,color:#fff,stroke:#fff
+  style DE fill:#cf222e,color:#fff,stroke:#fff
+  style LE fill:#cf222e,color:#fff,stroke:#fff
+```
+
+> **Well Covered** (green) -- specialised handler, strong for assisted migration | **Review-Heavy** (amber) -- translation exists but cross-cloud behaviour needs verification | **Advisory-Only** (orange) -- recognised but manual-review-first | **Manual Review** (red) -- procedural resources, flagged for human attention
 
 ### Complete AWS to Azure/GCP Mapping Table
 
