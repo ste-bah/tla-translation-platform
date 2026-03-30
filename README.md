@@ -233,19 +233,52 @@ Resources NOT in the dispatch tables above will use generic fallback translation
 
 ### Service Coverage Heatmap
 
-This is the practical view of current coverage quality for AWS-to-Azure/GCP infrastructure translation.
+Current coverage quality for AWS-to-Azure/GCP infrastructure translation.
 
-| Coverage Level | Services |
-|---|---|
-| **Well covered** | EC2, S3, ECR, ElastiCache Redis, Route53, VPC, Subnet, VPC Peering, NAT Gateway, KMS, Secrets Manager, EKS, RDS |
-| **Partially covered / review-heavy** | ASG, ALB/NLB, Lambda, ECS, API Gateway, Security Groups, CloudWatch, Transit Gateway, PrivateLink, WAF, Direct Connect, VPN, Customer Gateway, EBS, EFS, SQS, SNS, Step Functions, CloudFront |
-| **Still weak / advisory-heavy** | IAM Roles/Policies, DynamoDB, Route53 Health Checks, ElastiCache Cluster, procedural resources such as `null_resource`, `data "external"`, and `local-exec` provisioners |
+| Service | Coverage |
+|---------|----------|
+| EC2 | :green_circle: Well covered |
+| S3 | :green_circle: Well covered |
+| ECR | :green_circle: Well covered |
+| ElastiCache Redis | :green_circle: Well covered |
+| Route53 | :green_circle: Well covered |
+| VPC | :green_circle: Well covered |
+| Subnet | :green_circle: Well covered |
+| VPC Peering | :green_circle: Well covered |
+| NAT Gateway | :green_circle: Well covered |
+| KMS | :green_circle: Well covered |
+| Secrets Manager | :green_circle: Well covered |
+| EKS | :green_circle: Well covered |
+| RDS | :green_circle: Well covered |
+| ASG | :yellow_circle: Review-heavy |
+| ALB / NLB | :yellow_circle: Review-heavy |
+| Lambda | :yellow_circle: Review-heavy |
+| ECS | :yellow_circle: Review-heavy |
+| API Gateway | :yellow_circle: Review-heavy |
+| Security Groups | :yellow_circle: Review-heavy |
+| CloudWatch | :yellow_circle: Review-heavy |
+| Transit Gateway | :yellow_circle: Review-heavy |
+| PrivateLink | :yellow_circle: Review-heavy |
+| WAF | :yellow_circle: Review-heavy |
+| Direct Connect | :yellow_circle: Review-heavy |
+| VPN | :yellow_circle: Review-heavy |
+| Customer Gateway | :yellow_circle: Review-heavy |
+| EBS | :yellow_circle: Review-heavy |
+| EFS | :yellow_circle: Review-heavy |
+| SQS | :yellow_circle: Review-heavy |
+| SNS | :yellow_circle: Review-heavy |
+| Step Functions | :yellow_circle: Review-heavy |
+| CloudFront | :yellow_circle: Review-heavy |
+| IAM Roles / Policies | :orange_circle: Advisory-only |
+| DynamoDB | :orange_circle: Advisory-only |
+| Route53 Health Checks | :orange_circle: Advisory-only |
+| ElastiCache Cluster | :orange_circle: Advisory-only |
+| `null_resource` / `data "external"` / `local-exec` | :red_circle: Manual review |
 
-### What the heatmap means
-
-- **Well covered** means there is meaningful specialised handling and the platform is relatively strong for internal assisted migration use.
-- **Partially covered / review-heavy** means translation exists, but the output should still be treated as guarded and review-driven because cross-cloud behaviour often needs verification.
-- **Still weak / advisory-heavy** means the platform recognises these areas, but they remain manual-review or advisory-first rather than strong automated translation paths.
+> :green_circle: **Well covered** -- specialised handler, strong for assisted migration
+> :yellow_circle: **Review-heavy** -- translation exists but cross-cloud behaviour needs verification
+> :orange_circle: **Advisory-only** -- recognised but manual-review-first, no automated translation
+> :red_circle: **Manual review** -- procedural resources, flagged for human attention
 
 ### Complete AWS to Azure/GCP Mapping Table
 
